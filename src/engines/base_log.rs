@@ -14,6 +14,10 @@ use crc::{Crc, CRC_32_ISCSI};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde_derive::{Serialize,Deserialize};
 use anyhow::private::kind::AdhocKind;
+use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader};
+use std::error::Error;
+use std::borrow::Borrow;
+use std::sync::BarrierWaitResult;
 
 
 const DATA_DIR:&str = "data";
@@ -123,6 +127,13 @@ fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
 }
 
 fn process_record<R: Read>(reader: &mut R) -> anyhow::Result<KeyValuePair> {
+    let mut data = Vec::<u8>::with_capacity(RECORD_HEADER_SIZE);
+
+    {
+        reader.by_ref().take(RECORD_HEADER_SIZE as u64).read_to_end(&mut data)?;
+    }
+    let header:RecordHeader = bincode::deserialize(data.as_slice())?;
+    log::info!("{:?}",data);
     let saved_checksum = reader.read_u32::<LittleEndian>()?;
     let key_len = reader.read_u32::<LittleEndian>()?;
     let val_len = reader.read_u32::<LittleEndian>()?;
@@ -159,19 +170,17 @@ fn load(
         let kv = match recorde {
             Ok(kv) => kv,
             Err(err) => {
-                let may_io_err = err.root_cause().downcast_ref::<io::Error>();
-                match may_io_err {
-                    Some(io_err) => {
-                        match io_err.kind() {
-                            io::ErrorKind::UnexpectedEof => {
-                                break;
-                            }
-                            _ => return Err(anyhow::Error::from(err)),
+                let may_err = err.root_cause().downcast_ref::<bincode::Error>();
+                return match may_err {
+                    Some(may_err) => {
+                        if may_err.to_string().contains(
+                            io::Error::from(io::ErrorKind::UnexpectedEof).to_string().as_str()) {
+                            break;
                         }
-                    },
-                    None => return Err(anyhow::Error::from(err)),
+                        Err(anyhow::Error::from(err))
+                    }
+                    None => Err(anyhow::Error::from(err)),
                 }
-
             }
         };
         index.insert(

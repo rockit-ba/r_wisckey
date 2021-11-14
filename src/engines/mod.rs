@@ -1,4 +1,5 @@
 mod base_log;
+mod record;
 
 pub use self::base_log::LogEngine;
 
