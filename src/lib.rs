@@ -1,5 +1,8 @@
-mod db_server;
 mod error;
-mod engine;
+mod engines;
+mod common;
 
-pub use error::{Result,WiscError};
+// 重新导出
+pub use engines::LogEngine;
+pub use error::{Result, WiscError};
+pub use engines::{KvsEngine};
