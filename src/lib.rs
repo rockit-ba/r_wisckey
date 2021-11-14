@@ -1,5 +1,6 @@
-mod db_server;
-mod error;
-mod engine;
+mod engines;
+mod common;
 
-pub use error::{Result,WiscError};
+pub use engines::LogEngine;
+pub use common::WiscError;
+pub use engines::{KvsEngine};
