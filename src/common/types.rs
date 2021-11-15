@@ -1,3 +1,3 @@
 //! 自定义 type
 
-pub type ByteBuf = Vec<u8>;
+pub type ByteVec = Vec<u8>;
