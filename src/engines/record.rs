@@ -1,8 +1,10 @@
 //! record 数据模型
 use serde_derive::{Serialize,Deserialize};
 
+/// record header的大小，固定值
 pub const RECORD_HEADER_SIZE:usize = 9;
 
+/// 存储磁盘的完整实体
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Record {
     header: RecordHeader,
@@ -16,6 +18,7 @@ impl Record {
         }
     }
 }
+
 /// header布局
 ///
 /// command_type+checksum+key_len+val_len ，1+4+4=9byte
@@ -36,7 +39,7 @@ impl RecordHeader {
     }
 }
 
-/// 键值对record
+/// record 键值对
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct KVPair {
     pub key: String,
