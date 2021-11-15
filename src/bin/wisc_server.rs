@@ -21,6 +21,7 @@ Usage:
     wisc_server update key value
 ";
 
+/// 日志格式初始化
 pub fn log_init() {
     env_logger::builder()
         .format(|buf, record| {
@@ -48,9 +49,10 @@ fn main() {
 mod test {
     use super::*;
     use r_wisckey::KvsEngine;
+    use anyhow::Result;
 
     #[test]
-    fn test_get() -> anyhow::Result<()> {
+    fn test_get() -> Result<()> {
         log_init();
         let mut _log_engine = LogEngine::open()?;
         let value = _log_engine.get(&String::from("a")).unwrap();
@@ -58,7 +60,7 @@ mod test {
         Ok(())
     }
     #[test]
-    fn test_set() -> anyhow::Result<()> {
+    fn test_set() -> Result<()> {
         log_init();
         let mut _log_engine = LogEngine::open()?;
         _log_engine.set(&String::from("a"),&String::from("haha"));
