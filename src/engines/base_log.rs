@@ -90,12 +90,12 @@ impl LogEngine {
 
     // 往文件中添加 操作数据
     fn append(&mut self, command_type: u8, kv: &KVPair) -> Result<()> {
+        let mut data_byte = bincode::serialize(kv)?;
         let header = RecordHeader::new(command_type,
                                        checksum(data_byte.as_slice()),
                                        data_byte.len() as u32);
 
         let mut header_byte = bincode::serialize(&header)?;
-        let mut data_byte = bincode::serialize(kv)?;
         info!("append header:{:?}",&header);
         info!("append data:{:?}",kv);
         /*
