@@ -1,5 +1,7 @@
 use r_wisckey::LogEngine;
 use log::LevelFilter;
+use log::info;
+use std::io::Write;
 
 #[cfg(target_os = "windows")]
 const USAGE: &str = "
@@ -20,26 +22,48 @@ Usage:
 ";
 
 pub fn log_init() {
-    env_logger::builder().filter_level(LevelFilter::Debug).init();
+    env_logger::builder()
+        .format(|buf, record| {
+            writeln!(buf, "[{}] [{}] {}: {}",
+                     record.line().unwrap(),
+                     record.target(),
+                     record.level(),
+                     record.args())
+        })
+        .filter_level(LevelFilter::Debug)
+        .init();
 }
 
 fn main() {
     log_init();
-    let args: Vec<String> = std::env::args().collect();
-    let command = args.get(1).expect(&USAGE);
-    let key = args.get(2).expect(&USAGE);
-    let maybe_value = args.get(3);
-    let mut a = LogEngine::open().expect("unable to open db");
+    // let args: Vec<String> = std::env::args().collect();
+    // let command = args.get(1).expect(&USAGE);
+    // let key = args.get(2).expect(&USAGE);
+    // let maybe_value = args.get(3);
+    let mut _log_engine = LogEngine::open().expect("unable to open db");
+
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use r_wisckey::KvsEngine;
+
     #[test]
-    fn test() {
+    fn test_get() -> anyhow::Result<()> {
         log_init();
-        let mut a = LogEngine::open().expect("unable to open db");
-        log::info!("{:?}",a);
+        let mut _log_engine = LogEngine::open()?;
+        let value = _log_engine.get(&String::from("a")).unwrap();
+        info!("{}",value.unwrap());
+        Ok(())
     }
+    #[test]
+    fn test_set() -> anyhow::Result<()> {
+        log_init();
+        let mut _log_engine = LogEngine::open()?;
+        _log_engine.set(&String::from("a"),&String::from("haha"));
+        Ok(())
+    }
+
 
 }

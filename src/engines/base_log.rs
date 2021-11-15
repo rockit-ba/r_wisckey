@@ -3,35 +3,24 @@
 use std::fs::{File, OpenOptions};
 use std::collections::btree_map::BTreeMap;
 use std::{env, fs, io};
-
-use crate::WiscError;
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
-use std::io::{BufReader, Read, Seek, BufWriter, SeekFrom};
+use std::io::{BufReader, Read, BufWriter, Write,};
 use std::collections::HashMap;
-use crc::{Crc, CRC_32_ISCSI};
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use serde_derive::{Serialize,Deserialize};
-use anyhow::private::kind::AdhocKind;
-use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader};
-use std::error::Error;
-use std::borrow::Borrow;
-use std::sync::BarrierWaitResult;
+use crate::common::{ByteBuf, checksum};
+use crate::{WiscError, KvsEngine};
+use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair};
+use crate::engines::Scans;
+
+use anyhow::Result;
+use log::info;
 
 
 const DATA_DIR:&str = "data";
 const DATA_FILE_SUFFIX:&str = ".wisc";
 const DATA_FILE_EXTENSION:&str = "wisc";
-const FILE_MAX_SIZE: u64 = 1024*1024*10;
-
-pub const CASTAGNOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct KeyValuePair {
-    pub key: Vec<u8>,
-    pub value: Vec<u8>,
-}
+const FILE_MAX_SIZE: u64 = 1024*1024*1;
 
 #[derive(Debug)]
 pub struct LogEngine {
@@ -71,7 +60,7 @@ impl LogEngine {
         };
         let writer = match curr_log {
             Some(&name) => {
-                let mut file = open_option(get_log_path(&data_dir,name))?;
+                let file = open_option(get_log_path(&data_dir,name))?;
                 if file.metadata()?.len() >= FILE_MAX_SIZE {
                     BufWriter::new(open_option(get_log_path(&data_dir,name + 1))?)
                 }else {
@@ -91,9 +80,47 @@ impl LogEngine {
 
     }
 
+    // 往文件中添加 操作数据
+    fn append(&mut self, command_type: u8, kv: &KVPair) -> Result<()> {
+        let mut data_byte = bincode::serialize(kv)?;
+
+        let header = RecordHeader::new(command_type,
+                                       checksum(data_byte.as_slice()),
+                                       data_byte.len() as u32);
+
+        let mut header_byte = bincode::serialize(&header)?;
+
+        info!("append header:{:?}",&header);
+        info!("append data:{:?}",kv);
+        header_byte.append(&mut data_byte);
+        self.writer.write_all(header_byte.as_slice())?;
+        Ok(())
+    }
 }
 
-fn sorted_gen_list(path: &Path) -> anyhow::Result<Vec<u64>> {
+impl KvsEngine for LogEngine {
+    fn set(&mut self, key: &String, value: &String) -> Result<()> {
+        self.index.insert(key.to_string(),value.to_string());
+        let kv = KVPair::new(key.to_string(),value.to_string());
+        self.append(1_u8,&kv)?;
+        Ok(())
+    }
+
+    fn get(&self, key: &String) -> Result<Option<String>> {
+        Ok(self.index.get(key).cloned())
+    }
+
+    fn scan(&self, range: Scans) -> Result<Option<Vec<String>>> {
+        todo!()
+    }
+
+    fn remove(&mut self, key: &String) -> Result<()> {
+        todo!()
+    }
+}
+
+///  排序数据目录下的所有的数据文件
+fn sorted_gen_list(path: &Path) -> Result<Vec<u64>> {
     let mut gen_list: Vec<u64> = fs::read_dir(&path)?
         // map：map方法返回的是一个object，map将流中的当前元素替换为此返回值；
         // flatMap：flatMap方法返回的是一个stream，flatMap将流中的当前元素替换为此返回流拆解的流元素；
@@ -122,49 +149,47 @@ fn sorted_gen_list(path: &Path) -> anyhow::Result<Vec<u64>> {
     Ok(gen_list)
 }
 
+/// 根据数据目录和文件编号获取指定的文件地址
 fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
     dir.join(format!("{}{}", gen, DATA_FILE_SUFFIX))
 }
 
-fn process_record<R: Read>(reader: &mut R) -> anyhow::Result<KeyValuePair> {
-    let mut data = Vec::<u8>::with_capacity(RECORD_HEADER_SIZE);
+/// 加载单个文件中的单个record
+fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
 
+    let mut header_buf = ByteBuf::with_capacity(RECORD_HEADER_SIZE);
     {
-        reader.by_ref().take(RECORD_HEADER_SIZE as u64).read_to_end(&mut data)?;
+        reader.by_ref().take(RECORD_HEADER_SIZE as u64).read_to_end(&mut header_buf)?;
     }
-    let header:RecordHeader = bincode::deserialize(data.as_slice())?;
-    log::info!("{:?}",data);
-    let saved_checksum = reader.read_u32::<LittleEndian>()?;
-    let key_len = reader.read_u32::<LittleEndian>()?;
-    let val_len = reader.read_u32::<LittleEndian>()?;
+    // 得到record header
+    let header = bincode::deserialize::<RecordHeader>(header_buf.as_slice())?;
+    info!("load header:{:?}",&header);
+    let saved_checksum = header.checksum;
 
-    let data_len = key_len + val_len;
-    let mut data = Vec::<u8>::with_capacity(data_len as usize);
+    // 获取数据 len
+    let data_len = header.data_len;
+    let mut data_buf = ByteBuf::with_capacity(data_len as usize);
     {
-        reader.by_ref().take(data_len as u64).read_to_end(&mut data)?;
+        reader.by_ref().take(data_len as u64).read_to_end(&mut data_buf)?;
     }
 
-    let checksum = CASTAGNOLI.checksum(data.as_slice());
+    let checksum = checksum(data_buf.as_slice());
     if checksum != saved_checksum {
         // 数据损坏
-        panic!(
-            "data corruption encountered ({:08x} != {:08x})",
-            checksum, saved_checksum
-        );
+        return Err(anyhow::Error::from(
+            WiscError::DataCorruption { checksum, saved_checksum }
+        ))
     }
-    let value = data.split_off(key_len as usize);
-    let key = data;
-    Ok(KeyValuePair {
-        key,
-        value
-    })
+    let kv = bincode::deserialize::<KVPair>(data_buf.as_slice())?;
+    info!("load data:{:?}",&kv);
+    Ok(kv)
 }
 
-
+/// 加载单个文件中的record
 fn load(
     reader: &mut BufReader<File>,
     index: &mut BTreeMap<String,String>,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     loop {
         let recorde = process_record(reader);
         let kv = match recorde {
@@ -184,8 +209,8 @@ fn load(
             }
         };
         index.insert(
-            String::from_utf8(kv.key)?,
-            String::from_utf8(kv.value)?,
+            kv.key,
+            kv.value,
         );
     }
     Ok(())
