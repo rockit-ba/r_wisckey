@@ -1,7 +1,8 @@
 use r_wisckey::LogEngine;
-use log::LevelFilter;
 use log::info;
-use std::io::Write;
+use r_wisckey::common::fn_util;
+use r_wisckey::common::fn_util::log_init;
+
 
 #[cfg(target_os = "windows")]
 const USAGE: &str = "
@@ -21,19 +22,7 @@ Usage:
     wisc_server update key value
 ";
 
-/// 日志格式初始化
-pub fn log_init() {
-    env_logger::builder()
-        .format(|buf, record| {
-            writeln!(buf, "[{}] [{}] {}: {}",
-                     record.line().unwrap(),
-                     record.target(),
-                     record.level(),
-                     record.args())
-        })
-        .filter_level(LevelFilter::Debug)
-        .init();
-}
+
 
 fn main() {
     log_init();
@@ -56,8 +45,10 @@ mod test {
         let mut log_engine = LogEngine::open().unwrap();
         let value_01 = log_engine.get(&String::from("鸢一折纸")).unwrap();
         let value_02 = log_engine.get(&String::from("十香")).unwrap();
+        let value_03 = log_engine.get(&String::from("侍郎")).unwrap();
         info!("{:?}",value_01);
         info!("{:?}",value_02);
+        info!("{:?}",value_03);
     }
     #[test]
     fn test_set() {
@@ -66,8 +57,9 @@ mod test {
         log_engine.set(&String::from("鸢一折纸"),&String::from("约会大作战"));
         log_engine.set(&String::from("十香"),&String::from("约会大作战"));
         log_engine.set(&String::from("鸢一折纸"),&String::from("春物"));
+        log_engine.set(&String::from("侍郎"),&String::from("春物"));
+        log_engine.remove(&String::from("侍郎"));
 
     }
-
 
 }

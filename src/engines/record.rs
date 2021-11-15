@@ -43,10 +43,30 @@ impl RecordHeader {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct KVPair {
     pub key: String,
-    pub value: String,
+    // none 将占一个字节
+    pub value: Option<String>,
 }
 impl KVPair {
-    pub fn new(key: String, value: String) -> Self {
+    pub fn new(key: String, value: Option<String>) -> Self {
         KVPair { key, value }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::engines::record::KVPair;
+    use crate::common::fn_util::*;
+
+    #[test]
+    fn test() {
+        log_init();
+        let kv = KVPair::new("aa".to_string(),None);
+        let byte_kv = bincode::serialize(&kv).unwrap();
+        log::info!("{}",byte_kv.len());
+        let kv = bincode::deserialize::<KVPair>(byte_kv.as_slice()).unwrap();
+        log::info!("{:?}",kv);
+        let str = "aa".to_string();
+        let byte_str = bincode::serialize(&str).unwrap();
+        log::info!("{}",byte_str.len());
     }
 }

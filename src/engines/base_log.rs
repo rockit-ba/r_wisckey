@@ -8,13 +8,15 @@ use std::ffi::OsStr;
 use std::io::{BufReader, Read, BufWriter, Write,};
 use std::collections::HashMap;
 
-use crate::common::{ByteBuf, checksum};
-use crate::{WiscError, KvsEngine};
+use crate::{KvsEngine};
 use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair};
 use crate::engines::Scans;
 
 use anyhow::Result;
 use log::info;
+use crate::common::fn_util::checksum;
+use crate::common::types::ByteVec;
+use crate::common::error_enum::WiscError;
 
 /// 存放数据文件的基础目录
 const DATA_DIR:&str = "data";
@@ -111,7 +113,7 @@ impl KvsEngine for LogEngine {
     fn set(&mut self, key: &String, value: &String) -> Result<()> {
         // 放入内存中
         self.index.insert(key.to_string(),value.to_string());
-        let kv = KVPair::new(key.to_string(),value.to_string());
+        let kv = KVPair::new(key.to_string(),Some(value.to_string()));
         // 持久化log 文件
         self.append(1_u8,&kv)?;
         Ok(())
@@ -127,7 +129,12 @@ impl KvsEngine for LogEngine {
     }
 
     fn remove(&mut self, key: &String) -> Result<()> {
-        todo!()
+        // 内存值移除
+        self.index.remove(key);
+        let kv = KVPair::new(key.to_string(),None);
+        // 持久化log 文件
+        self.append(0_u8,&kv)?;
+        Ok(())
     }
 }
 
@@ -161,7 +168,7 @@ fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
 
 /// 加载单个文件中的单个record
 fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
-    let mut header_buf = ByteBuf::with_capacity(RECORD_HEADER_SIZE);
+    let mut header_buf = ByteVec::with_capacity(RECORD_HEADER_SIZE);
     {
         reader.by_ref().take(RECORD_HEADER_SIZE as u64).read_to_end(&mut header_buf)?;
     }
@@ -172,7 +179,7 @@ fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
 
     let data_len = header.data_len;
     // data 字节数据
-    let mut data_buf = ByteBuf::with_capacity(data_len as usize);
+    let mut data_buf = ByteVec::with_capacity(data_len as usize);
     {
         reader.by_ref().take(data_len as u64).read_to_end(&mut data_buf)?;
     }
@@ -212,11 +219,17 @@ fn load(
                 }
             }
         };
-        // 将数据放入内存
-        index.insert(
-            kv.key,
-            kv.value,
-        );
+        match kv.value {
+            Some(value) => {
+                // 将数据放入内存
+                index.insert(kv.key, value);
+            },
+            None =>{
+                // 从内存中移除
+                // 文件中的删除会根据 command_type 去进行
+                index.remove(&kv.key);
+            }
+        }
     }
     Ok(())
 }
