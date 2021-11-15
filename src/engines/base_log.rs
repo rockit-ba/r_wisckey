@@ -42,7 +42,7 @@ impl LogEngine {
         let mut index = BTreeMap::<String,String>::new();
 
         let log_names = sorted_gen_list(&data_dir.as_path())?;
-        log::info!("{:?}",&log_names);
+        log::info!("load data files:{:?}",&log_names);
         for &name in &log_names {
             let mut reader = BufReader::new(
                 File::open(get_log_path(&data_dir.as_path(), name))?

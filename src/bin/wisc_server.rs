@@ -41,7 +41,7 @@ fn main() {
     // let command = args.get(1).expect(&USAGE);
     // let key = args.get(2).expect(&USAGE);
     // let maybe_value = args.get(3);
-    let mut _log_engine = LogEngine::open().expect("unable to open db");
+    let mut _log_engine = LogEngine::open().unwrap();
 
 }
 
@@ -49,22 +49,24 @@ fn main() {
 mod test {
     use super::*;
     use r_wisckey::KvsEngine;
-    use anyhow::Result;
 
     #[test]
-    fn test_get() -> Result<()> {
+    fn test_get() {
         log_init();
-        let mut _log_engine = LogEngine::open()?;
-        let value = _log_engine.get(&String::from("a")).unwrap();
-        info!("{}",value.unwrap());
-        Ok(())
+        let mut log_engine = LogEngine::open().unwrap();
+        let value_01 = log_engine.get(&String::from("鸢一折纸")).unwrap();
+        let value_02 = log_engine.get(&String::from("十香")).unwrap();
+        info!("{:?}",value_01);
+        info!("{:?}",value_02);
     }
     #[test]
-    fn test_set() -> Result<()> {
+    fn test_set() {
         log_init();
-        let mut _log_engine = LogEngine::open()?;
-        _log_engine.set(&String::from("a"),&String::from("haha"));
-        Ok(())
+        let mut log_engine = LogEngine::open().unwrap();
+        log_engine.set(&String::from("鸢一折纸"),&String::from("约会大作战"));
+        log_engine.set(&String::from("十香"),&String::from("约会大作战"));
+        log_engine.set(&String::from("鸢一折纸"),&String::from("春物"));
+
     }
 
 
