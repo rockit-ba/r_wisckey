@@ -5,8 +5,9 @@ use serde_derive::Deserialize;
 use std::env::current_dir;
 use std::path::Path;
 use crate::common::error_enum::WiscError;
-
+/// 配置文件名
 const SERVER_CONFIG_FILE:&str = "server.yml";
+/// 配置文件基础目录
 const CONFIG_BASE_DIR:&str = "config";
 
 // 加载全局 ServerConfig

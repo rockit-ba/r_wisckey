@@ -13,4 +13,7 @@ pub enum WiscError {
 
     #[error("file: [{0}] not found!")]
     FileNotFound(String),
+
+    #[error("key: [{0}] not exist!")]
+    KeyNotExist(String),
 }
