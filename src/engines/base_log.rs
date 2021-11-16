@@ -25,8 +25,10 @@ pub struct LogEngine {
     readers: HashMap<u64,BufReader<File>>,
     writer: BufWriter<File>,
     index: BTreeMap<String,String>,
+    write_name: u64
 }
 impl LogEngine {
+
     // 从指定的数据目录打开一个 LogEngine
     pub fn open() -> anyhow::Result<Self> {
 
@@ -48,43 +50,44 @@ impl LogEngine {
             readers.insert(name, reader);
         }
         let curr_log = log_names.last();
-        let open_option = |path: PathBuf| {
-            OpenOptions::new()
-                .read(true)
-                .create(true)
-                .write(true)
-                .append(true)
-                .open(path)
-        };
 
         // writer 初始化
-        let writer = match curr_log {
+        let (writer,write_name) = match curr_log {
             // 如果存在最后写入数据的文件
             Some(&name) => {
                 let file = open_option(get_log_path(&data_dir,name))?;
                 if file.metadata()?.len() >= SERVER_CONFIG.file_max_size {
                     // 如果文件大小超过规定大小，则创建新文件
-                    BufWriter::new(open_option(get_log_path(&data_dir,name + 1))?)
+                    (BufWriter::new(
+                        open_option(get_log_path(&data_dir,name + 1))?), name + 1)
                 }else {
-                    BufWriter::new(file)
+                    (BufWriter::new(file), name)
                 }
             },
             None => {
                 // 如果不存在任何一个文件，则创建初始的文件
-                BufWriter::new(open_option(get_log_path(&data_dir,0))?)
+                (BufWriter::new(open_option(get_log_path(&data_dir,0))?), 0)
             }
         };
 
         Ok(LogEngine {
             readers,
             writer,
-            index
+            index,
+            write_name
         })
 
     }
 
     // 往文件中添加 操作数据
     fn append(&mut self, command_type: CommandType, kv: &KVPair) -> Result<()> {
+        if self.writer.get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
+            let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
+            // 如果文件大小超过规定大小，则创建新文件
+            self.writer = BufWriter::new(open_option(get_log_path(&data_dir,self.write_name + 1))?);
+            info!("create new data file :{}",self.write_name + 1);
+        }
+
         let mut data_byte = bincode::serialize(kv)?;
         let header = RecordHeader::new(command_type as u8,
                                        checksum(data_byte.as_slice()),
@@ -130,6 +133,15 @@ impl KvsEngine for LogEngine {
         self.append(CommandType::Delete,&kv)?;
         Ok(())
     }
+}
+
+fn open_option(path: PathBuf) -> Result<File> {
+    Ok(OpenOptions::new()
+        .read(true)
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(path)?)
 }
 
 ///  排序数据目录下的所有的数据文件，获取文件名集合
