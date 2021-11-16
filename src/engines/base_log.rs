@@ -196,6 +196,7 @@ fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
     Ok(kv)
 }
 
+
 /// 循环加载单个文件中的record
 fn load(
     reader: &mut BufReader<File>,
@@ -207,16 +208,19 @@ fn load(
             Ok(kv) => kv,
             Err(err) => {
                 let may_err = err.root_cause().downcast_ref::<bincode::Error>();
-                return match may_err {
-                    Some(may_err) => {
-                        if may_err.to_string().contains(
-                            io::Error::from(io::ErrorKind::UnexpectedEof).to_string().as_str()) {
-                            break;
+                return if let Some(box_error) = may_err {
+                    match &**box_error {
+                        bincode::ErrorKind::Io(io_err) => {
+                            match io_err.kind() {
+                                io::ErrorKind::UnexpectedEof => {
+                                    break;
+                                }
+                                _ => Err(anyhow::Error::from(err))
+                            }
                         }
-                        Err(anyhow::Error::from(err))
+                        _ => Err(anyhow::Error::from(err)),
                     }
-                    None => Err(anyhow::Error::from(err)),
-                }
+                } else { Err(anyhow::Error::from(err)) }
             }
         };
         match kv.value {
