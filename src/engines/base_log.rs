@@ -2,7 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::collections::btree_map::BTreeMap;
-use std::{env, fs, io};
+use std::{env, fs};
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use std::io::{BufReader, Read, BufWriter, Write,};
@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::{KvsEngine};
 use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair, CommandType};
 use crate::engines::Scans;
-use crate::common::fn_util::checksum;
+use crate::common::fn_util::{checksum, is_eof_err};
 use crate::common::types::ByteVec;
 use crate::common::error_enum::WiscError;
 use crate::config::SERVER_CONFIG;
@@ -43,6 +43,7 @@ impl LogEngine {
 
         let log_names = sorted_gen_list(data_dir.as_path())?;
         log::info!("load data files:{:?}",&log_names);
+
         for &name in &log_names {
             let mut reader = BufReader::new(
                 File::open(get_log_path(data_dir.as_path(), name))?
@@ -74,6 +75,7 @@ impl LogEngine {
             }
         };
 
+        info!("compress_counter ====> -| {} |-",compress_counter);
         Ok(LogEngine {
             readers,
             writer,
@@ -81,7 +83,6 @@ impl LogEngine {
             write_name,
             compress_counter
         })
-
     }
 
     // 往文件中添加 操作数据
@@ -112,11 +113,19 @@ impl LogEngine {
 }
 impl KvsEngine for LogEngine {
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        // command_type key存在执行set 必定是 update；反之亦然
+        let command_type;
+        if self.index.get(key).is_some() {
+            command_type = CommandType::Update;
+        }else {
+            command_type = CommandType::Insert;
+        }
+
         // 放入内存中
         self.index.insert(key.to_string(),value.to_string());
         let kv = KVPair::new(key.to_string(),Some(value.to_string()));
         // 持久化log 文件
-        self.append(CommandType::Set,&kv)?;
+        self.append(command_type,&kv)?;
         Ok(())
     }
 
@@ -147,7 +156,7 @@ impl KvsEngine for LogEngine {
 
     }
 }
-
+/// 默认的文件句柄option
 fn open_option(path: PathBuf) -> Result<File> {
     Ok(OpenOptions::new()
         .read(true)
@@ -186,13 +195,16 @@ fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
 }
 
 /// 加载单个文件中的单个record
-fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
+///
+/// (KVPair,bool)  bool 代表是否需要压缩
+fn process_record<R: Read >(reader: &mut R) -> Result<(KVPair,bool)> {
     let mut header_buf = ByteVec::with_capacity(RECORD_HEADER_SIZE);
     {
         reader.by_ref().take(RECORD_HEADER_SIZE as u64).read_to_end(&mut header_buf)?;
     }
     // 得到record header
     let header = bincode::deserialize::<RecordHeader>(header_buf.as_slice())?;
+
     info!("load header:{:?}",&header);
     let saved_checksum = header.checksum;
 
@@ -212,7 +224,7 @@ fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
     }
     let kv = bincode::deserialize::<KVPair>(data_buf.as_slice())?;
     info!("load data:{:?}",&kv);
-    Ok(kv)
+    Ok((kv, header.command_type != CommandType::Insert as u8))
 }
 
 
@@ -224,41 +236,27 @@ fn load(
     let mut compress_counter = 0_usize;
     loop {
         let recorde = process_record(reader);
-        let kv = match recorde {
-            Ok(kv) => kv,
+        let (kv,is_compress) = match recorde {
+            Ok(result) => result,
             Err(err) => {
-                let may_err = err.root_cause().downcast_ref::<bincode::Error>();
-                return if let Some(box_error) = may_err {
-                    match &**box_error {
-                        bincode::ErrorKind::Io(io_err) => {
-                            match io_err.kind() {
-                                io::ErrorKind::UnexpectedEof => {
-                                    break;
-                                }
-                                _ => Err(err)
-                            }
-                        }
-                        _ => Err(err),
-                    }
-                } else { Err(err) }
+                if is_eof_err(&err) {
+                    break;
+                }else { return Err(err); }
             }
         };
         match kv.value {
             Some(value) => {
                 // 将数据放入内存
-                let set_opt = index.insert(kv.key, value);
-                if set_opt.is_some() {
-                    // uodate 操作需要+1
-                    compress_counter += 1;
-                }
+                index.insert(kv.key, value);
             },
             None =>{
                 // 从内存中移除
                 // 文件中的删除会根据 command_type 去进行
                 index.remove(&kv.key);
-                compress_counter += 1;
             }
         }
+        // 统计 compress_counter
+        if is_compress {compress_counter += 1 }
     }
     Ok(compress_counter)
 }
