@@ -11,6 +11,7 @@ pub struct Record {
     data: KVPair,
 }
 impl Record {
+    #[allow(dead_code)]
     pub fn new(header: RecordHeader, data: KVPair) -> Self {
         Record {
             header,

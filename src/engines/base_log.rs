@@ -25,7 +25,7 @@ const DATA_FILE_SUFFIX:&str = ".wisc";
 /// 数据文件的扩展名
 const DATA_FILE_EXTENSION:&str = "wisc";
 /// 数据文件最大容量，超出则创建新文件写入数据
-const FILE_MAX_SIZE: u64 = 1024*1024*1;
+const FILE_MAX_SIZE: u64 = 1024*1024;
 
 /// 存储引擎
 #[derive(Debug)]
@@ -43,11 +43,11 @@ impl LogEngine {
         let mut readers = HashMap::<u64,BufReader<File>>::new();
         let mut index = BTreeMap::<String,String>::new();
 
-        let log_names = sorted_gen_list(&data_dir.as_path())?;
+        let log_names = sorted_gen_list(data_dir.as_path())?;
         log::info!("load data files:{:?}",&log_names);
         for &name in &log_names {
             let mut reader = BufReader::new(
-                File::open(get_log_path(&data_dir.as_path(), name))?
+                File::open(get_log_path(data_dir.as_path(), name))?
             );
             // 加载log文件到index中，在这个过程中不断执行insert 和remove操作，根据set 或者 rm
             load(&mut reader, &mut index)?;
@@ -110,7 +110,7 @@ impl LogEngine {
     }
 }
 impl KvsEngine for LogEngine {
-    fn set(&mut self, key: &String, value: &String) -> Result<()> {
+    fn set(&mut self, key: &str, value: &str) -> Result<()> {
         // 放入内存中
         self.index.insert(key.to_string(),value.to_string());
         let kv = KVPair::new(key.to_string(),Some(value.to_string()));
@@ -119,16 +119,17 @@ impl KvsEngine for LogEngine {
         Ok(())
     }
 
-    fn get(&self, key: &String) -> Result<Option<String>> {
+    fn get(&self, key: &str) -> Result<Option<String>> {
         // 从内存中获取
         Ok(self.index.get(key).cloned())
     }
 
+    #[allow(unused_variables)]
     fn scan(&self, range: Scans) -> Result<Option<Vec<String>>> {
         todo!()
     }
 
-    fn remove(&mut self, key: &String) -> Result<()> {
+    fn remove(&mut self, key: &str) -> Result<()> {
         // 内存值移除
         self.index.remove(key);
         let kv = KVPair::new(key.to_string(),None);
@@ -215,12 +216,12 @@ fn load(
                                 io::ErrorKind::UnexpectedEof => {
                                     break;
                                 }
-                                _ => Err(anyhow::Error::from(err))
+                                _ => Err(err)
                             }
                         }
-                        _ => Err(anyhow::Error::from(err)),
+                        _ => Err(err),
                     }
-                } else { Err(anyhow::Error::from(err)) }
+                } else { Err(err) }
             }
         };
         match kv.value {
