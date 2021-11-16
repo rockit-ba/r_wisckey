@@ -1,8 +1,8 @@
 [package]
 name = "r_wisckey"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2018"
-authors = ["潘吉祥"]
+authors = ["潘吉祥","1121153008@qq.com"]
 description = "基于wisckey 论文的LSM存储引擎"
 
 [dependencies]
@@ -15,10 +15,10 @@ log = "0.4.14"
 env_logger = "0.9.0"
 anyhow = "1.0.45"
 thiserror = "1.0.30"
+config = "~0.11.0"
+lazy_static = "~1.4.0"
 #crossbeam = "0.8.0"
 #crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam.git", branch = "master" }
 #rayon = "1.5.1"
 #num_cpus = "1.13.0"
 #uuid = { version = "~0.8.2", features = ["v4"] }
-#config = "~0.11.0"
-lazy_static = "~1.4.0"
