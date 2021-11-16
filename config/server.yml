@@ -9,4 +9,6 @@ data_file_extension: wisc
 # 默认 1024 * 1024 = 1048576
 file_max_size: 1048576
 
-# 压缩阈值：此处的数字统计 已进行的
+# 压缩阈值：此处的数字统计 已进行的 update/delete 操作次数
+# 也就是说，当记录的该类操作次数超过该阈值之后将触发压缩动作
+compress_threshold: 10

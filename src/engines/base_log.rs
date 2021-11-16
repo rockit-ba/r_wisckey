@@ -25,7 +25,9 @@ pub struct LogEngine {
     readers: HashMap<u64,BufReader<File>>,
     writer: BufWriter<File>,
     index: BTreeMap<String,String>,
-    write_name: u64
+    write_name: u64,
+    // 压缩触发统计
+    compress_counter: usize,
 }
 impl LogEngine {
 
@@ -37,6 +39,7 @@ impl LogEngine {
 
         let mut readers = HashMap::<u64,BufReader<File>>::new();
         let mut index = BTreeMap::<String,String>::new();
+        let mut compress_counter = 0_usize;
 
         let log_names = sorted_gen_list(data_dir.as_path())?;
         log::info!("load data files:{:?}",&log_names);
@@ -45,7 +48,8 @@ impl LogEngine {
                 File::open(get_log_path(data_dir.as_path(), name))?
             );
             // 加载log文件到index中，在这个过程中不断执行insert 和remove操作，根据set 或者 rm
-            load(&mut reader, &mut index)?;
+            // 同时记录压缩统计
+            compress_counter += load(&mut reader, &mut index)?;
             // 一个log 文件对应一个  bufreader
             readers.insert(name, reader);
         }
@@ -74,7 +78,8 @@ impl LogEngine {
             readers,
             writer,
             index,
-            write_name
+            write_name,
+            compress_counter
         })
 
     }
@@ -215,7 +220,8 @@ fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
 fn load(
     reader: &mut BufReader<File>,
     index: &mut BTreeMap<String,String>,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut compress_counter = 0_usize;
     loop {
         let recorde = process_record(reader);
         let kv = match recorde {
@@ -240,15 +246,20 @@ fn load(
         match kv.value {
             Some(value) => {
                 // 将数据放入内存
-                index.insert(kv.key, value);
+                let set_opt = index.insert(kv.key, value);
+                if set_opt.is_some() {
+                    // uodate 操作需要+1
+                    compress_counter += 1;
+                }
             },
             None =>{
                 // 从内存中移除
                 // 文件中的删除会根据 command_type 去进行
                 index.remove(&kv.key);
+                compress_counter += 1;
             }
         }
     }
-    Ok(())
+    Ok(compress_counter)
 }
 

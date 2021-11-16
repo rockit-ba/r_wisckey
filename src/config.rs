@@ -17,12 +17,15 @@ lazy_static! {
     };
 }
 /// server.yml 解析类
+///
+/// 字段含义查看 config/server.yml 文件
 #[derive(Debug,Deserialize)]
 pub struct ServerConfig {
     pub data_dir: String,
     pub data_file_suffix: String,
     pub data_file_extension: String,
-    pub file_max_size: u64
+    pub file_max_size: u64,
+    compress_threshold: usize,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {
