@@ -127,11 +127,19 @@ impl KvsEngine for LogEngine {
 
     fn remove(&mut self, key: &str) -> Result<()> {
         // 内存值移除
-        self.index.remove(key);
-        let kv = KVPair::new(key.to_string(),None);
-        // 持久化log 文件
-        self.append(CommandType::Delete,&kv)?;
-        Ok(())
+        let opt = self.index.remove(key);
+        match opt {
+            Some(_) => {
+                let kv = KVPair::new(key.to_string(),None);
+                // 持久化log 文件
+                self.append(CommandType::Delete,&kv)?;
+                Ok(())
+            },
+            None => {
+                Err(anyhow::Error::from(WiscError::KeyNotExist(key.to_string())))
+            }
+        }
+
     }
 }
 
