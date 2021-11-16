@@ -2,7 +2,7 @@
 name = "r_wisckey"
 version = "0.1.0"
 edition = "2018"
-authors = ["潘吉祥"]
+authors = ["潘吉祥","1121153008@qq.com"]
 description = "基于wisckey 论文的LSM存储引擎"
 
 [dependencies]
