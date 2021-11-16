@@ -24,7 +24,7 @@ impl Record {
 /// command_type+checksum+key_len+val_len ，1+4+4=9byte
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct RecordHeader {
-    // 1 set  0  delete
+    // CommandType 取值
     pub command_type: u8,
     pub checksum: u32,
     pub data_len: u32
@@ -39,11 +39,19 @@ impl RecordHeader {
     }
 }
 
+/// 操作类型 可取：`Set` `Delete`
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum CommandType {
+    Set = 1,
+    Delete = 0
+}
+
+
 /// record 键值对
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct KVPair {
     pub key: String,
-    // none 将占一个字节
+    // some 和 none 将占一个字节，如果value的大小是8，实际存储将占9
     pub value: Option<String>,
 }
 impl KVPair {
@@ -54,19 +62,13 @@ impl KVPair {
 
 #[cfg(test)]
 mod test {
-    use crate::engines::record::KVPair;
+    use crate::engines::record::{KVPair, CommandType};
     use crate::common::fn_util::*;
 
     #[test]
     fn test() {
         log_init();
-        let kv = KVPair::new("aa".to_string(),None);
-        let byte_kv = bincode::serialize(&kv).unwrap();
-        log::info!("{}",byte_kv.len());
-        let kv = bincode::deserialize::<KVPair>(byte_kv.as_slice()).unwrap();
-        log::info!("{:?}",kv);
-        let str = "aa".to_string();
-        let byte_str = bincode::serialize(&str).unwrap();
-        log::info!("{}",byte_str.len());
+        let aa = bincode::serialize(&String::from("")).unwrap();
+        log::info!("{:?}",aa.len());
     }
 }

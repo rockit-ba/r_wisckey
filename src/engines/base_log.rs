@@ -9,7 +9,7 @@ use std::io::{BufReader, Read, BufWriter, Write,};
 use std::collections::HashMap;
 
 use crate::{KvsEngine};
-use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair};
+use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair, CommandType};
 use crate::engines::Scans;
 
 use anyhow::Result;
@@ -91,9 +91,9 @@ impl LogEngine {
     }
 
     // 往文件中添加 操作数据
-    fn append(&mut self, command_type: u8, kv: &KVPair) -> Result<()> {
+    fn append(&mut self, command_type: CommandType, kv: &KVPair) -> Result<()> {
         let mut data_byte = bincode::serialize(kv)?;
-        let header = RecordHeader::new(command_type,
+        let header = RecordHeader::new(command_type as u8,
                                        checksum(data_byte.as_slice()),
                                        data_byte.len() as u32);
 
@@ -115,7 +115,7 @@ impl KvsEngine for LogEngine {
         self.index.insert(key.to_string(),value.to_string());
         let kv = KVPair::new(key.to_string(),Some(value.to_string()));
         // 持久化log 文件
-        self.append(1_u8,&kv)?;
+        self.append(CommandType::Set,&kv)?;
         Ok(())
     }
 
@@ -133,7 +133,7 @@ impl KvsEngine for LogEngine {
         self.index.remove(key);
         let kv = KVPair::new(key.to_string(),None);
         // 持久化log 文件
-        self.append(0_u8,&kv)?;
+        self.append(CommandType::Delete,&kv)?;
         Ok(())
     }
 }
