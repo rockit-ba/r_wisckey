@@ -11,6 +11,6 @@ pub enum WiscError {
         saved_checksum: u32,
     },
 
-    #[error("key: [{0}] not found")]
-    KeyNotFound(String),
+    #[error("file: [{0}] not found!")]
+    FileNotFound(String),
 }

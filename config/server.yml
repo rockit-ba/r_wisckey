@@ -1,0 +1,9 @@
+# 存放数据文件的基础目录
+data_dir: data
+# 数据文件的后缀名
+data_file_suffix: .wisc
+# 数据文件的扩展名
+data_file_extension: wisc
+# 数据文件最大容量，超出则创建新文件写入数据
+# 默认 1024 * 1024
+file_max_size: 1048576

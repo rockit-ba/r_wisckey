@@ -11,21 +11,13 @@ use std::collections::HashMap;
 use crate::{KvsEngine};
 use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair, CommandType};
 use crate::engines::Scans;
-
-use anyhow::Result;
-use log::info;
 use crate::common::fn_util::checksum;
 use crate::common::types::ByteVec;
 use crate::common::error_enum::WiscError;
+use crate::config::SERVER_CONFIG;
 
-/// 存放数据文件的基础目录
-const DATA_DIR:&str = "data";
-/// 数据文件的后缀名
-const DATA_FILE_SUFFIX:&str = ".wisc";
-/// 数据文件的扩展名
-const DATA_FILE_EXTENSION:&str = "wisc";
-/// 数据文件最大容量，超出则创建新文件写入数据
-const FILE_MAX_SIZE: u64 = 1024*1024;
+use anyhow::Result;
+use log::info;
 
 /// 存储引擎
 #[derive(Debug)]
@@ -37,7 +29,8 @@ pub struct LogEngine {
 impl LogEngine {
     // 从指定的数据目录打开一个 LogEngine
     pub fn open() -> anyhow::Result<Self> {
-        let data_dir = env::current_dir()?.join(DATA_DIR);
+
+        let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
         fs::create_dir_all(&data_dir)?;
 
         let mut readers = HashMap::<u64,BufReader<File>>::new();
@@ -69,7 +62,7 @@ impl LogEngine {
             // 如果存在最后写入数据的文件
             Some(&name) => {
                 let file = open_option(get_log_path(&data_dir,name))?;
-                if file.metadata()?.len() >= FILE_MAX_SIZE {
+                if file.metadata()?.len() >= SERVER_CONFIG.file_max_size {
                     // 如果文件大小超过规定大小，则创建新文件
                     BufWriter::new(open_option(get_log_path(&data_dir,name + 1))?)
                 }else {
@@ -146,13 +139,13 @@ fn sorted_gen_list(path: &Path) -> Result<Vec<u64>> {
             Ok(res?.path())
         })
         // 过滤属于文件的path，并且文件扩展名是 wisc
-        .filter(|path| path.is_file() && path.extension() == Some(DATA_FILE_EXTENSION.as_ref()))
+        .filter(|path| path.is_file() && path.extension() == Some(SERVER_CONFIG.data_file_extension.as_ref()))
         // 过滤出需要的 path
         .flat_map(|path| {
             // 获取文件名
             path.file_name()
                 .and_then(OsStr::to_str)
-                .map(|s| s.trim_end_matches(DATA_FILE_SUFFIX))
+                .map(|s| s.trim_end_matches(&SERVER_CONFIG.data_file_suffix))
                 .map(str::parse::<u64>)
         })
         // 扁平化，相当于去除flat 包装，取得里面的 u64 集合
@@ -164,7 +157,7 @@ fn sorted_gen_list(path: &Path) -> Result<Vec<u64>> {
 
 /// 根据数据目录和文件编号获取指定的文件地址
 fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
-    dir.join(format!("{}{}", gen, DATA_FILE_SUFFIX))
+    dir.join(format!("{}{}", gen, &SERVER_CONFIG.data_file_suffix))
 }
 
 /// 加载单个文件中的单个record
