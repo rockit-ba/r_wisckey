@@ -18,6 +18,7 @@ use crate::config::SERVER_CONFIG;
 
 use anyhow::Result;
 use log::info;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// 存储引擎
 #[derive(Debug)]
@@ -27,7 +28,7 @@ pub struct LogEngine {
     index: BTreeMap<String,String>,
     write_name: u64,
     // 压缩触发统计
-    compress_counter: usize,
+    compress_counter: AtomicUsize,
 }
 impl LogEngine {
 
@@ -39,7 +40,7 @@ impl LogEngine {
 
         let mut readers = HashMap::<u64,BufReader<File>>::new();
         let mut index = BTreeMap::<String,String>::new();
-        let mut compress_counter = 0_usize;
+        let compress_counter = AtomicUsize::new(0_usize);
 
         let log_names = sorted_gen_list(data_dir.as_path())?;
         log::info!("load data files:{:?}",&log_names);
@@ -50,7 +51,7 @@ impl LogEngine {
             );
             // 加载log文件到index中，在这个过程中不断执行insert 和remove操作，根据set 或者 rm
             // 同时记录压缩统计
-            compress_counter += load(&mut reader, &mut index)?;
+            compress_counter.fetch_add(load(&mut reader, &mut index)?,Ordering::SeqCst);
             // 一个log 文件对应一个  bufreader
             readers.insert(name, reader);
         }
@@ -75,7 +76,7 @@ impl LogEngine {
             }
         };
 
-        info!("compress_counter ====> -| {} |-",compress_counter);
+        info!("compress_counter ====> -| {} |-",compress_counter.load(Ordering::SeqCst));
         Ok(LogEngine {
             readers,
             writer,
@@ -117,6 +118,7 @@ impl KvsEngine for LogEngine {
         let command_type;
         if self.index.get(key).is_some() {
             command_type = CommandType::Update;
+            self.compress_counter.fetch_add(1_usize,Ordering::SeqCst);
         }else {
             command_type = CommandType::Insert;
         }
@@ -144,6 +146,7 @@ impl KvsEngine for LogEngine {
         let opt = self.index.remove(key);
         match opt {
             Some(_) => {
+                self.compress_counter.fetch_add(1_usize,Ordering::SeqCst);
                 let kv = KVPair::new(key.to_string(),None);
                 // 持久化log 文件
                 self.append(CommandType::Delete,&kv)?;
