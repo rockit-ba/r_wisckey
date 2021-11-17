@@ -25,7 +25,8 @@ pub struct ServerConfig {
     pub data_file_suffix: String,
     pub data_file_extension: String,
     pub file_max_size: u64,
-    compress_threshold: usize,
+    pub compress_threshold: usize,
+    pub compress_interval: u64,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {

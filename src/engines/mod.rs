@@ -1,10 +1,12 @@
 mod base_log;
 mod record;
+mod compress;
 
 pub use self::base_log::LogEngine;
 
 use std::ops::Range;
 use serde_derive::{Deserialize,Serialize};
+
 
 pub trait KvsEngine  {
     /// 设置字符串键值对

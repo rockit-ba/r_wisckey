@@ -19,6 +19,8 @@ use crate::config::SERVER_CONFIG;
 use anyhow::Result;
 use log::info;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::engines::compress::compress;
+use std::sync::Arc;
 
 /// 存储引擎
 #[derive(Debug)]
@@ -28,7 +30,7 @@ pub struct LogEngine {
     index: BTreeMap<String,String>,
     write_name: u64,
     // 压缩触发统计
-    compress_counter: AtomicUsize,
+    compress_counter: Arc<AtomicUsize>,
 }
 impl LogEngine {
 
@@ -40,7 +42,7 @@ impl LogEngine {
 
         let mut readers = HashMap::<u64,BufReader<File>>::new();
         let mut index = BTreeMap::<String,String>::new();
-        let compress_counter = AtomicUsize::new(0_usize);
+        let compress_counter = Arc::new(AtomicUsize::new(0_usize));
 
         let log_names = sorted_gen_list(data_dir.as_path())?;
         log::info!("load data files:{:?}",&log_names);
@@ -75,6 +77,9 @@ impl LogEngine {
                 (BufWriter::new(open_option(get_log_path(&data_dir,0))?), 0)
             }
         };
+
+        // 开启压缩线程
+        compress(compress_counter.clone())?;
 
         info!("compress_counter ====> -| {} |-",compress_counter.load(Ordering::SeqCst));
         Ok(LogEngine {

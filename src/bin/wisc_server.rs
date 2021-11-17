@@ -1,5 +1,8 @@
 use r_wisckey::{LogEngine, KvsEngine};
 use r_wisckey::common::fn_util::log_init;
+use std::thread::sleep;
+use std::time::Duration;
+
 
 
 #[cfg(target_os = "windows")]
@@ -67,5 +70,5 @@ fn main() {
             eprintln!("{:?}",USAGE);
         },
     }
-
+    sleep(Duration::from_secs(60));
 }
