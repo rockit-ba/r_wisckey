@@ -16,4 +16,7 @@ pub enum WiscError {
 
     #[error("key: [{0}] not exist!")]
     KeyNotExist(String),
+
+    #[error("SocketAddr parser fail !")]
+    SocketAddrParserFail,
 }

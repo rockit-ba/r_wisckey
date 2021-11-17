@@ -64,13 +64,10 @@ impl KVPair {
 
 #[cfg(test)]
 mod test {
-    use crate::engines::record::{KVPair, CommandType};
     use crate::common::fn_util::*;
 
     #[test]
     fn test() {
         log_init();
-        let aa = bincode::serialize(&String::from("")).unwrap();
-        log::info!("{:?}",aa.len());
     }
 }

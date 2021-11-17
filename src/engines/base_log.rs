@@ -34,7 +34,7 @@ pub struct LogEngine {
 }
 impl LogEngine {
 
-    // 从指定的数据目录打开一个 LogEngine
+    /// 从指定的数据目录打开一个 LogEngine
     pub fn open() -> anyhow::Result<Self> {
 
         let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
@@ -91,7 +91,7 @@ impl LogEngine {
         })
     }
 
-    // 往文件中添加 操作数据
+    /// 往文件中添加 操作数据
     fn append(&mut self, command_type: CommandType, kv: &KVPair) -> Result<()> {
         if self.writer.get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
             let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);

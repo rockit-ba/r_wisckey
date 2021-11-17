@@ -1,6 +1,8 @@
 //! 压缩处理逻辑
 
 use anyhow::Result;
+use log::info;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
@@ -17,10 +19,10 @@ pub fn compress(compress_counter: Arc<AtomicUsize>) -> Result<()> {
         loop {
             // todo
             if compress_counter.load(Ordering::SeqCst) >= SERVER_CONFIG.compress_threshold {
-                println!("compress....");
+                info!("compress....");
 
             }else {
-                println!("don't need compress....");
+                info!("don't need compress....");
             }
             sleep(Duration::from_secs(SERVER_CONFIG.compress_interval));
         }
