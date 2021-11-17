@@ -40,10 +40,11 @@ impl RecordHeader {
     }
 }
 
-/// 操作类型 可取：`Set` `Delete`
+/// 操作类型 可取：`Insert` `Update` `Delete`
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum CommandType {
-    Set = 1,
+    Insert = 1,
+    Update = 2,
     Delete = 0
 }
 

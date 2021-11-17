@@ -53,8 +53,15 @@ fn main() {
         },
         "update" => {
             let val = maybe_value.expect(USAGE);
-            _log_engine.set(key,val).unwrap();
-            println!("update success :key: {:?},value: {:?}",key,val);
+            match _log_engine.get(key).unwrap() {
+                Some(_) => {
+                    _log_engine.set(key,val).unwrap();
+                    println!("update success :key: {:?},value: {:?}",key,val);
+                },
+                None => {
+                    eprintln!("insert fail :key: {:?} existed, consider update that",key);
+                }
+            }
         },
         _ => {
             eprintln!("{:?}",USAGE);

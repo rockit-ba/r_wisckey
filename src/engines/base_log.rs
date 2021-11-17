@@ -2,7 +2,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::collections::btree_map::BTreeMap;
-use std::{env, fs, io};
+use std::{env, fs};
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use std::io::{BufReader, Read, BufWriter, Write,};
@@ -11,13 +11,14 @@ use std::collections::HashMap;
 use crate::{KvsEngine};
 use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair, CommandType};
 use crate::engines::Scans;
-use crate::common::fn_util::checksum;
+use crate::common::fn_util::{checksum, is_eof_err};
 use crate::common::types::ByteVec;
 use crate::common::error_enum::WiscError;
 use crate::config::SERVER_CONFIG;
 
 use anyhow::Result;
 use log::info;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// 存储引擎
 #[derive(Debug)]
@@ -25,7 +26,9 @@ pub struct LogEngine {
     readers: HashMap<u64,BufReader<File>>,
     writer: BufWriter<File>,
     index: BTreeMap<String,String>,
-    write_name: u64
+    write_name: u64,
+    // 压缩触发统计
+    compress_counter: AtomicUsize,
 }
 impl LogEngine {
 
@@ -37,15 +40,18 @@ impl LogEngine {
 
         let mut readers = HashMap::<u64,BufReader<File>>::new();
         let mut index = BTreeMap::<String,String>::new();
+        let compress_counter = AtomicUsize::new(0_usize);
 
         let log_names = sorted_gen_list(data_dir.as_path())?;
         log::info!("load data files:{:?}",&log_names);
+
         for &name in &log_names {
             let mut reader = BufReader::new(
                 File::open(get_log_path(data_dir.as_path(), name))?
             );
             // 加载log文件到index中，在这个过程中不断执行insert 和remove操作，根据set 或者 rm
-            load(&mut reader, &mut index)?;
+            // 同时记录压缩统计
+            compress_counter.fetch_add(load(&mut reader, &mut index)?,Ordering::SeqCst);
             // 一个log 文件对应一个  bufreader
             readers.insert(name, reader);
         }
@@ -70,13 +76,14 @@ impl LogEngine {
             }
         };
 
+        info!("compress_counter ====> -| {} |-",compress_counter.load(Ordering::SeqCst));
         Ok(LogEngine {
             readers,
             writer,
             index,
-            write_name
+            write_name,
+            compress_counter
         })
-
     }
 
     // 往文件中添加 操作数据
@@ -107,11 +114,20 @@ impl LogEngine {
 }
 impl KvsEngine for LogEngine {
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        // command_type key存在执行set 必定是 update；反之亦然
+        let command_type;
+        if self.index.get(key).is_some() {
+            command_type = CommandType::Update;
+            self.compress_counter.fetch_add(1_usize,Ordering::SeqCst);
+        }else {
+            command_type = CommandType::Insert;
+        }
+
         // 放入内存中
         self.index.insert(key.to_string(),value.to_string());
         let kv = KVPair::new(key.to_string(),Some(value.to_string()));
         // 持久化log 文件
-        self.append(CommandType::Set,&kv)?;
+        self.append(command_type,&kv)?;
         Ok(())
     }
 
@@ -130,6 +146,7 @@ impl KvsEngine for LogEngine {
         let opt = self.index.remove(key);
         match opt {
             Some(_) => {
+                self.compress_counter.fetch_add(1_usize,Ordering::SeqCst);
                 let kv = KVPair::new(key.to_string(),None);
                 // 持久化log 文件
                 self.append(CommandType::Delete,&kv)?;
@@ -142,7 +159,7 @@ impl KvsEngine for LogEngine {
 
     }
 }
-
+/// 默认的文件句柄option
 fn open_option(path: PathBuf) -> Result<File> {
     Ok(OpenOptions::new()
         .read(true)
@@ -181,13 +198,16 @@ fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
 }
 
 /// 加载单个文件中的单个record
-fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
+///
+/// (KVPair,bool)  bool 代表是否需要压缩
+fn process_record<R: Read >(reader: &mut R) -> Result<(KVPair,bool)> {
     let mut header_buf = ByteVec::with_capacity(RECORD_HEADER_SIZE);
     {
         reader.by_ref().take(RECORD_HEADER_SIZE as u64).read_to_end(&mut header_buf)?;
     }
     // 得到record header
     let header = bincode::deserialize::<RecordHeader>(header_buf.as_slice())?;
+
     info!("load header:{:?}",&header);
     let saved_checksum = header.checksum;
 
@@ -207,7 +227,7 @@ fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
     }
     let kv = bincode::deserialize::<KVPair>(data_buf.as_slice())?;
     info!("load data:{:?}",&kv);
-    Ok(kv)
+    Ok((kv, header.command_type != CommandType::Insert as u8))
 }
 
 
@@ -215,26 +235,16 @@ fn process_record<R: Read >(reader: &mut R) -> Result<KVPair> {
 fn load(
     reader: &mut BufReader<File>,
     index: &mut BTreeMap<String,String>,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut compress_counter = 0_usize;
     loop {
         let recorde = process_record(reader);
-        let kv = match recorde {
-            Ok(kv) => kv,
+        let (kv,is_compress) = match recorde {
+            Ok(result) => result,
             Err(err) => {
-                let may_err = err.root_cause().downcast_ref::<bincode::Error>();
-                return if let Some(box_error) = may_err {
-                    match &**box_error {
-                        bincode::ErrorKind::Io(io_err) => {
-                            match io_err.kind() {
-                                io::ErrorKind::UnexpectedEof => {
-                                    break;
-                                }
-                                _ => Err(err)
-                            }
-                        }
-                        _ => Err(err),
-                    }
-                } else { Err(err) }
+                if is_eof_err(&err) {
+                    break;
+                }else { return Err(err); }
             }
         };
         match kv.value {
@@ -248,7 +258,9 @@ fn load(
                 index.remove(&kv.key);
             }
         }
+        // 统计 compress_counter
+        if is_compress {compress_counter += 1 }
     }
-    Ok(())
+    Ok(compress_counter)
 }
 
