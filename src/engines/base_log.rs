@@ -19,6 +19,8 @@ use crate::config::SERVER_CONFIG;
 use anyhow::Result;
 use log::info;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::engines::compress::compress;
+use std::sync::Arc;
 
 /// 存储引擎
 #[derive(Debug)]
@@ -28,11 +30,11 @@ pub struct LogEngine {
     index: BTreeMap<String,String>,
     write_name: u64,
     // 压缩触发统计
-    compress_counter: AtomicUsize,
+    compress_counter: Arc<AtomicUsize>,
 }
 impl LogEngine {
 
-    // 从指定的数据目录打开一个 LogEngine
+    /// 从指定的数据目录打开一个 LogEngine
     pub fn open() -> anyhow::Result<Self> {
 
         let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
@@ -40,7 +42,7 @@ impl LogEngine {
 
         let mut readers = HashMap::<u64,BufReader<File>>::new();
         let mut index = BTreeMap::<String,String>::new();
-        let compress_counter = AtomicUsize::new(0_usize);
+        let compress_counter = Arc::new(AtomicUsize::new(0_usize));
 
         let log_names = sorted_gen_list(data_dir.as_path())?;
         log::info!("load data files:{:?}",&log_names);
@@ -76,6 +78,9 @@ impl LogEngine {
             }
         };
 
+        // 开启压缩线程
+        compress(compress_counter.clone())?;
+
         info!("compress_counter ====> -| {} |-",compress_counter.load(Ordering::SeqCst));
         Ok(LogEngine {
             readers,
@@ -86,7 +91,7 @@ impl LogEngine {
         })
     }
 
-    // 往文件中添加 操作数据
+    /// 往文件中添加 操作数据
     fn append(&mut self, command_type: CommandType, kv: &KVPair) -> Result<()> {
         if self.writer.get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
             let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
