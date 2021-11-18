@@ -23,7 +23,7 @@ pub fn log_init() {
                      record.level(),
                      record.args())
         })
-        .filter_level(LevelFilter::Debug)
+        .filter_level(LevelFilter::Info)
         .init();
 }
 
