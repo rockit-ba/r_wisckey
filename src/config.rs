@@ -28,6 +28,7 @@ pub struct ServerConfig {
     pub compress_threshold: usize,
     pub compress_interval: u64,
     pub server_addr: String,
+    pub command_history: String,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {

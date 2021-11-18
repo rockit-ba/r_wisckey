@@ -21,3 +21,6 @@ compress_interval: 5
 
 # wisc_server 默认的启动地址
 server_addr: 127.0.0.1:7777
+
+# 命令行历史存放文件
+command_history: history.txt
