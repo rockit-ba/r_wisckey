@@ -62,12 +62,3 @@ impl KVPair {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use crate::common::fn_util::*;
-
-    #[test]
-    fn test() {
-        log_init();
-    }
-}

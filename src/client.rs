@@ -11,19 +11,20 @@ use log::{info,warn,error};
 use rustyline::validate::{Validator, ValidationContext, ValidationResult};
 use rustyline_derive::{Completer, Helper, Highlighter, Hinter};
 use crate::client::Command::{Get, Delete, Insert, Update};
+use serde_derive::{Serialize,Deserialize};
 
 const USAGE: &str = "
 command parser fail Usage:
-    get key
-    delete key
-    insert key value
-    update key value
+    get key;
+    delete key;
+    insert key value;
+    update key value;
 ";
 
 /// command line 前缀
 const LINE_PREFIX:&str = "wisc-db>> ";
 
-#[allow(dead_code)]
+/// 客户端实体
 pub struct Client {
     reader: BufReader<TcpStream>,
     writer: BufWriter<TcpStream>,
@@ -34,6 +35,8 @@ impl Client {
     /// 获取服务端连接实例
     pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<Self> {
         let tcp_reader = TcpStream::connect(addr)?;
+        info!("Success connection to {:?}",tcp_reader.peer_addr()?);
+
         let tcp_writer = tcp_reader.try_clone()?;
         Ok(Client {
             reader: BufReader::new(tcp_reader),
@@ -54,7 +57,12 @@ impl Client {
                 Ok(line) => {
                     self.editor.add_history_entry(line.as_str());
                     let command = command_parser(line.as_str()).unwrap();
-                    info!("command: {:?}", command);
+                    bincode::serialize_into::<BufWriter<&TcpStream>,Command>(
+                        BufWriter::new(self.writer.get_ref()),&command)?;
+
+                    let req = bincode::deserialize_from::<BufReader<&TcpStream>,String>(
+                        BufReader::new(self.reader.get_ref()))?;
+                    println!("{}",&req);
                 },
                 Err(ReadlineError::Interrupted) => {
                     info!("CTRL-C");
@@ -127,7 +135,8 @@ fn command_parser(command: &str) -> Option<Command> {
 
 }
 
-#[derive(Debug)]
+/// 客户端明命令实体
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum Command {
     Get(String),
     Delete(String),
@@ -135,6 +144,7 @@ pub enum Command {
     Update(String,String),
 }
 
+/// 命令行附属
 #[derive(Completer, Helper, Highlighter, Hinter)]
 struct InputValidator;
 
@@ -156,13 +166,3 @@ impl Validator for InputValidator {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use crate::client::command_parser;
-
-    #[test]
-    fn test() {
-        let aa = command_parser("get\naa");
-        println!("{:?}",aa);
-    }
-}

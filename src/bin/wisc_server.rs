@@ -1,61 +1,36 @@
 //! 存储引擎服务端
 
 use anyhow::Result;
-use log::info;
+use log::{info,error};
 
 use r_wisckey::{LogEngine, Server};
 use r_wisckey::common::fn_util::{log_init, socket_addr_from_str};
 use r_wisckey::config::SERVER_CONFIG;
+use std::process::exit;
+
+const BANNER:&str = r#"                  .__                  __
+_______  __  _  __|__|  ______  ____  |  | __  ____  ___.__.
+\_  __ \ \ \/ \/ /|  | /  ___/_/ ___\ |  |/ /_/ __ \<   |  |
+ |  | \/  \     / |  | \___ \ \  \___ |    < \  ___/ \___  |
+ |__|______\/\_/  |__|/____  > \___  >|__|_ \ \___  >/ ____|
+    /_____/                \/      \/      \/     \/ \/     "#;
 
 fn main() {
-
-    // match command.as_str() {
-    //     "get" => {
-    //         let value =_log_engine.get(key).unwrap();
-    //         println!("{:?}",value);
-    //     },
-    //     "delete" => {
-    //         _log_engine.remove(key).unwrap();
-    //         println!("delete success :{:?}",key);
-    //     },
-    //     "insert" => {
-    //         let val = maybe_value.expect(USAGE);
-    //         match _log_engine.get(key).unwrap() {
-    //             Some(_) => {
-    //                 eprintln!("insert fail :key: {:?} existed, consider update that",key);
-    //             },
-    //             None => {
-    //                 _log_engine.set(key,val).unwrap();
-    //                 println!("insert success :key: {:?},value: {:?}",key,val);
-    //             }
-    //         }
-    //     },
-    //     "update" => {
-    //         let val = maybe_value.expect(USAGE);
-    //         match _log_engine.get(key).unwrap() {
-    //             Some(_) => {
-    //                 _log_engine.set(key,val).unwrap();
-    //                 println!("update success :key: {:?},value: {:?}",key,val);
-    //             },
-    //             None => {
-    //                 eprintln!("insert fail :key: {:?} existed, consider update that",key);
-    //             }
-    //         }
-    //     },
-    //     _ => {
-    //         eprintln!("{:?}",USAGE);
-    //     },
-    // }
     log_init();
-    run().unwrap();
+    if let Err(err) = run() {
+        error!("{:?}",err);
+        exit(1);
+    }
 }
 
 fn run() -> Result<()>{
     let mut server = Server::new(LogEngine::open()?);
     let socket_addr = socket_addr_from_str(SERVER_CONFIG.server_addr.as_str())?;
-    server.run(socket_addr)?;
+    info!("{}",BANNER);
     info!("wisc-server version: {}", env!("CARGO_PKG_VERSION"));
-    info!("Listening on {:?}", socket_addr);
+    info!("Listening on {:?}", &socket_addr);
+
+    server.run(socket_addr)?;
     Ok(())
 }
 
