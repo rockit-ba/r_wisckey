@@ -1,8 +1,9 @@
 //! 自定义error
 use thiserror::Error;
+use serde_derive::{Serialize,Deserialize};
 
 /// 自定义内部错误
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Serialize, Deserialize)]
 pub enum WiscError {
     /// checksum值不一致
     #[error("data corruption encountered (expected {saved_checksum:?}, got {checksum:?})")]
@@ -16,6 +17,9 @@ pub enum WiscError {
 
     #[error("key: [{0}] not exist!")]
     KeyNotExist(String),
+
+    #[error("insert fail :key: [{0}] existed, consider update that")]
+    KeyExist(String),
 
     #[error("SocketAddr parser fail !")]
     SocketAddrParserFail,

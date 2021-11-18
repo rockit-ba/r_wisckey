@@ -17,7 +17,7 @@ file_max_size: 1048576
 # 操作次数进行统计就会得出 2条 。这里简单地选择忽略这种误差，现实情况中也较少这种对同一个key 反复进行insert delete。
 compress_threshold: 10
 # 压缩线程执行的频率，单位：秒。
-compress_interval: 5
+compress_interval: 60
 
 # wisc_server 默认的启动地址
 server_addr: 127.0.0.1:7777

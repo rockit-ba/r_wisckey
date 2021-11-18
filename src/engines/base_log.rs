@@ -114,6 +114,7 @@ impl LogEngine {
          */
         header_byte.append(&mut data_byte);
         self.writer.write_all(header_byte.as_slice())?;
+        self.writer.flush()?;
         Ok(())
     }
 }
