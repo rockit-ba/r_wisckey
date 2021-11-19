@@ -13,8 +13,9 @@ use rustyline_derive::{Completer, Helper, Highlighter, Hinter};
 use crate::client::Command::{Get, Delete, Insert, Update};
 use serde_derive::{Serialize,Deserialize};
 
+/// helper
 const USAGE: &str = "
-command parser fail Usage:
+command parser fail, Usage:
     get key;
     delete key;
     insert key value;
@@ -24,11 +25,15 @@ command parser fail Usage:
 /// command line 前缀
 const LINE_PREFIX:&str = "wisc-db>> ";
 
+const GET:&str = "get";
+const DELETE:&str = "delete";
+const INSERT:&str = "insert";
+const UPDATE:&str = "update";
+
 /// 客户端实体
 pub struct Client {
     reader: BufReader<TcpStream>,
     writer: BufWriter<TcpStream>,
-
     editor: Editor<InputValidator>,
 }
 impl Client {
@@ -56,7 +61,9 @@ impl Client {
             match readline {
                 Ok(line) => {
                     self.editor.add_history_entry(line.as_str());
+                    // command_parser 是否能成功转换已经在 命令行的阶段校验了
                     let command = command_parser(line.as_str()).unwrap();
+
                     bincode::serialize_into::<BufWriter<&TcpStream>,Command>(
                         BufWriter::new(self.writer.get_ref()),&command)?;
 
@@ -64,6 +71,7 @@ impl Client {
                         BufReader::new(self.reader.get_ref()))?;
                     println!("{}",&req);
                 },
+
                 Err(ReadlineError::Interrupted) => {
                     info!("CTRL-C");
                     break
@@ -88,22 +96,23 @@ impl Client {
 ///
 /// insert key value
 fn command_parser(command: &str) -> Option<Command> {
-    let arr:Vec<String> = command.trim()
+    let command_arr:Vec<String> = command.trim()
         .replace(";","")
+        .trim()
         .replace("\n"," ")
         .split_whitespace()
         .map(|ele|ele.to_string())
         .collect();
-    return match arr.len() {
+    return match command_arr.len() {
         // get key
         // delete key
         2 => {
-            let key = arr.get(1).unwrap();
-            match arr.get(0).unwrap().as_str() {
-                "get" => {
+            let key = command_arr.get(1).unwrap();
+            match command_arr.get(0).unwrap().as_str() {
+                GET => {
                     Some(Get(key.to_string()))
                 },
-                "delete" => {
+                DELETE => {
                     Some(Delete(key.to_string()))
                 },
                 _ => {
@@ -114,13 +123,13 @@ fn command_parser(command: &str) -> Option<Command> {
         // insert key value
         // update key value
         3 =>{
-            let key = arr.get(1).unwrap();
-            let value = arr.get(2).unwrap();
-            match arr.get(0).unwrap().as_str() {
-                "insert" => {
+            let key = command_arr.get(1).unwrap();
+            let value = command_arr.get(2).unwrap();
+            match command_arr.get(0).unwrap().as_str() {
+                INSERT => {
                     Some(Insert(key.to_string(),value.to_string()))
                 },
-                "update" => {
+                UPDATE => {
                     Some(Update(key.to_string(),value.to_string()))
                 },
                 _ => {
@@ -147,7 +156,6 @@ pub enum Command {
 /// 命令行附属
 #[derive(Completer, Helper, Highlighter, Hinter)]
 struct InputValidator;
-
 impl Validator for InputValidator {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
         let input = ctx.input();
