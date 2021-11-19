@@ -18,17 +18,17 @@ use crate::config::SERVER_CONFIG;
 
 use anyhow::Result;
 use log::info;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering, AtomicU64};
 use crate::engines::compress::compress;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// 存储引擎
 #[derive(Debug)]
 pub struct LogEngine {
     readers: HashMap<u64,BufReader<File>>,
-    writer: BufWriter<File>,
+    writer: Arc<Mutex<BufWriter<File>>>,
     index: BTreeMap<String,String>,
-    write_name: u64,
+    write_name: Arc<AtomicU64>,
     // 压缩触发统计
     compress_counter: Arc<AtomicUsize>,
 }
@@ -66,20 +66,35 @@ impl LogEngine {
                 let file = open_option(get_log_path(&data_dir,name))?;
                 if file.metadata()?.len() >= SERVER_CONFIG.file_max_size {
                     // 如果文件大小超过规定大小，则创建新文件
-                    (BufWriter::new(
-                        open_option(get_log_path(&data_dir,name + 1))?), name + 1)
+                    (
+                        Arc::new(Mutex::new(
+                        BufWriter::new(
+                            open_option(get_log_path(&data_dir,name + 1))?)
+                        )),
+                        name + 1
+                    )
                 }else {
-                    (BufWriter::new(file), name)
+                    (
+                        Arc::new(Mutex::new(BufWriter::new(file))),
+                        name
+                    )
                 }
             },
             None => {
                 // 如果不存在任何一个文件，则创建初始的文件
-                (BufWriter::new(open_option(get_log_path(&data_dir,0))?), 0)
+                (
+                    Arc::new(Mutex::new(
+                    BufWriter::new(
+                        open_option(get_log_path(&data_dir,0))?)
+                    )),
+                    0
+                )
             }
         };
 
+        let write_name = Arc::new(AtomicU64::new(write_name));
         // 开启压缩线程
-        compress(compress_counter.clone())?;
+        compress(write_name.clone(),writer.clone(),compress_counter.clone())?;
 
         info!("compress_counter ====> -| {} |-",compress_counter.load(Ordering::SeqCst));
         Ok(LogEngine {
@@ -93,11 +108,15 @@ impl LogEngine {
 
     /// 往文件中添加 操作数据
     fn append(&mut self, command_type: CommandType, kv: &KVPair) -> Result<()> {
-        if self.writer.get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
+        if self.writer.lock().unwrap().get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
             let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
             // 如果文件大小超过规定大小，则创建新文件
-            self.writer = BufWriter::new(open_option(get_log_path(&data_dir,self.write_name + 1))?);
-            info!("create new data file :{}",self.write_name + 1);
+            self.write_name.fetch_add(1_u64,Ordering::SeqCst);
+            let gen = self.write_name.load(Ordering::SeqCst);
+
+            *self.writer.lock().unwrap() =
+                BufWriter::new(open_option(get_log_path(&data_dir,gen))?);
+            info!("create new data file :{}",gen);
         }
 
         let mut data_byte = bincode::serialize(kv)?;
@@ -113,8 +132,8 @@ impl LogEngine {
          因为我们首先是读取定长的 header
          */
         header_byte.append(&mut data_byte);
-        self.writer.write_all(header_byte.as_slice())?;
-        self.writer.flush()?;
+        self.writer.lock().unwrap().write_all(header_byte.as_slice())?;
+        self.writer.lock().unwrap().flush()?;
         Ok(())
     }
 }
@@ -166,7 +185,7 @@ impl KvsEngine for LogEngine {
     }
 }
 /// 默认的文件句柄option
-fn open_option(path: PathBuf) -> Result<File> {
+pub fn open_option(path: PathBuf) -> Result<File> {
     Ok(OpenOptions::new()
         .read(true)
         .create(true)
@@ -199,7 +218,7 @@ fn sorted_gen_list(path: &Path) -> Result<Vec<u64>> {
 }
 
 /// 根据数据目录和文件编号获取指定的文件地址
-fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
+pub fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
     dir.join(format!("{}{}", gen, &SERVER_CONFIG.data_file_suffix))
 }
 

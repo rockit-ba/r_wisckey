@@ -22,7 +22,7 @@ impl<E: KvsEngine> Server<E> {
     pub fn run<S: ToSocketAddrs>(&mut self, addr: S) -> Result<()> {
         let listener = TcpListener::bind(addr)?;
         for stream in listener.incoming() {
-            // todo
+            // todo  这里目前只是单线程处理
             loop {
                 match &stream {
                     Ok(stream) => {
