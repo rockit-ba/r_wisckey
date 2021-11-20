@@ -25,8 +25,8 @@ use std::sync::{Arc, Mutex};
 /// 存储引擎
 #[derive(Debug)]
 pub struct LogEngine {
-    readers: HashMap<u64,BufReader<File>>,
-    writer: Arc<Mutex<BufWriter<File>>>,
+    readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
+    writer: BufWriter<File>,
     index: BTreeMap<String,String>,
     write_name: Arc<AtomicU64>,
     // 压缩触发统计
@@ -40,7 +40,7 @@ impl LogEngine {
         let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
         fs::create_dir_all(&data_dir)?;
 
-        let mut readers = HashMap::<u64,BufReader<File>>::new();
+        let readers = Arc::new(Mutex::new(HashMap::<u64,BufReader<File>>::new()));
         let mut index = BTreeMap::<String,String>::new();
         let compress_counter = Arc::new(AtomicUsize::new(0_usize));
 
@@ -55,7 +55,7 @@ impl LogEngine {
             // 同时记录压缩统计
             compress_counter.fetch_add(load(&mut reader, &mut index)?,Ordering::SeqCst);
             // 一个log 文件对应一个  bufreader
-            readers.insert(name, reader);
+            readers.lock().unwrap().insert(name, reader);
         }
         let curr_log = log_names.last();
 
@@ -67,26 +67,22 @@ impl LogEngine {
                 if file.metadata()?.len() >= SERVER_CONFIG.file_max_size {
                     // 如果文件大小超过规定大小，则创建新文件
                     (
-                        Arc::new(Mutex::new(
-                        BufWriter::new(
-                            open_option(get_log_path(&data_dir,name + 1))?)
-                        )),
+                        BufWriter::new(open_option(get_log_path(&data_dir,name + 1))?),
                         name + 1
                     )
                 }else {
                     (
-                        Arc::new(Mutex::new(BufWriter::new(file))),
+                        BufWriter::new(file),
                         name
                     )
                 }
             },
             None => {
                 // 如果不存在任何一个文件，则创建初始的文件
+                let first_file = open_option(get_log_path(&data_dir,0))?;
+                readers.lock().unwrap().insert(0,BufReader::new(first_file.try_clone()?));
                 (
-                    Arc::new(Mutex::new(
-                    BufWriter::new(
-                        open_option(get_log_path(&data_dir,0))?)
-                    )),
+                    BufWriter::new(first_file),
                     0
                 )
             }
@@ -94,7 +90,10 @@ impl LogEngine {
 
         let write_name = Arc::new(AtomicU64::new(write_name));
         // 开启压缩线程
-        compress(write_name.clone(),writer.clone(),compress_counter.clone())?;
+
+        compress(readers.clone(),
+                 write_name.clone(),
+                 compress_counter.clone())?;
 
         info!("compress_counter ====> -| {} |-",compress_counter.load(Ordering::SeqCst));
         Ok(LogEngine {
@@ -108,14 +107,18 @@ impl LogEngine {
 
     /// 往文件中添加 操作数据
     fn append(&mut self, command_type: CommandType, kv: &KVPair) -> Result<()> {
-        if self.writer.lock().unwrap().get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
+        if self.writer.get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
             let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
             // 如果文件大小超过规定大小，则创建新文件
             self.write_name.fetch_add(1_u64,Ordering::SeqCst);
             let gen = self.write_name.load(Ordering::SeqCst);
 
-            *self.writer.lock().unwrap() =
-                BufWriter::new(open_option(get_log_path(&data_dir,gen))?);
+            let new_file = open_option(get_log_path(&data_dir,gen))?;
+
+            self.writer =
+                BufWriter::new(new_file.try_clone()?);
+
+            self.readers.lock().unwrap().insert(gen,BufReader::new(new_file));
             info!("create new data file :{}",gen);
         }
 
@@ -132,8 +135,8 @@ impl LogEngine {
          因为我们首先是读取定长的 header
          */
         header_byte.append(&mut data_byte);
-        self.writer.lock().unwrap().write_all(header_byte.as_slice())?;
-        self.writer.lock().unwrap().flush()?;
+        self.writer.write_all(header_byte.as_slice())?;
+        self.writer.flush()?;
         Ok(())
     }
 }
@@ -225,7 +228,7 @@ pub fn get_log_path(dir: &Path, gen: u64) -> PathBuf {
 /// 加载单个文件中的单个record
 ///
 /// (KVPair,bool)  bool 代表是否需要压缩
-fn process_record<R: Read >(reader: &mut R) -> Result<(KVPair,bool)> {
+pub fn process_record<R: Read >(reader: &mut R) -> Result<(KVPair,bool)> {
     let mut header_buf = ByteVec::with_capacity(RECORD_HEADER_SIZE);
     {
         reader.by_ref().take(RECORD_HEADER_SIZE as u64).read_to_end(&mut header_buf)?;
@@ -257,7 +260,7 @@ fn process_record<R: Read >(reader: &mut R) -> Result<(KVPair,bool)> {
 
 
 /// 循环加载单个文件中的record
-fn load(
+pub fn load(
     reader: &mut BufReader<File>,
     index: &mut BTreeMap<String,String>,
 ) -> Result<usize> {
