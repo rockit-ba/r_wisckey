@@ -15,9 +15,9 @@ file_max_size: 1048576
 # insert (a,1) -> delete (a) -> insert (a,2) -> update (a,3);
 # 此时数据文件需要删除的数据实际上是有 3 条，我们只需要保留 (a,3)，但是根据我们对 update/delete
 # 操作次数进行统计就会得出 2条 。这里简单地选择忽略这种误差，现实情况中也较少这种对同一个key 反复进行insert delete。
-compress_threshold: 5
+compress_threshold: 3
 # 压缩线程执行的频率，单位：秒。
-compress_interval: 60
+compress_interval: 30
 
 # wisc_server 默认的启动地址
 server_addr: 127.0.0.1:7777
