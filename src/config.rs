@@ -5,6 +5,7 @@ use serde_derive::Deserialize;
 use std::env::current_dir;
 use std::path::Path;
 use crate::common::error_enum::WiscError;
+
 /// 配置文件名
 const SERVER_CONFIG_FILE:&str = "server.yml";
 /// 配置文件基础目录
@@ -37,6 +38,8 @@ pub struct ServerConfig {
     pub server_addr: String,
     /// 命令行历史存放文件
     pub command_history: String,
+    /// write_buf_max_size
+    pub write_buf_max_size: usize,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {

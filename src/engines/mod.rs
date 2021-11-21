@@ -1,6 +1,7 @@
 mod base_log;
 mod record;
 mod compress;
+mod persistence;
 
 pub use self::base_log::LogEngine;
 
