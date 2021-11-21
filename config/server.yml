@@ -24,3 +24,8 @@ server_addr: 127.0.0.1:7777
 
 # 命令行历史存放文件
 command_history: history.txt
+
+# 达到该阈值之后将刷磁盘，单位 byte；
+# 对于判断是否刷盘来说，它依然是个非准确值，但对于刷盘的数据量来说，它将是准确的
+# 也就是说我们一次会往磁盘刷 write_buf_max_size byte的数据。因为我们需要保证刷盘的原子性。
+write_buf_max_size: 200

@@ -5,7 +5,7 @@ use std::collections::btree_map::BTreeMap;
 use std::{env, fs};
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
-use std::io::{BufReader, Read, BufWriter, Write,};
+use std::io::{BufReader, Read, BufWriter,};
 use std::collections::HashMap;
 
 use crate::{KvsEngine};
@@ -21,16 +21,18 @@ use log::info;
 use std::sync::atomic::{AtomicUsize, Ordering, AtomicU64};
 use crate::engines::compress::compress;
 use std::sync::{Arc, Mutex};
+use crate::engines::persistence::data_log_append;
 
 /// 存储引擎
 #[derive(Debug)]
 pub struct LogEngine {
     readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
-    writer: BufWriter<File>,
+    writer: Arc<Mutex<BufWriter<File>>>,
     index: BTreeMap<String,String>,
     write_name: Arc<AtomicU64>,
     // 压缩触发统计
     compress_counter: Arc<AtomicUsize>,
+    write_buf: Arc<Mutex<ByteVec>>,
 }
 impl LogEngine {
 
@@ -67,12 +69,16 @@ impl LogEngine {
                 if file.metadata()?.len() >= SERVER_CONFIG.file_max_size {
                     // 如果文件大小超过规定大小，则创建新文件
                     (
-                        BufWriter::new(open_option(get_log_path(&data_dir,name + 1))?),
+                        Arc::new(Mutex::new(
+                            BufWriter::new(open_option(get_log_path(&data_dir,name + 1))?)
+                        )),
                         name + 1
                     )
                 }else {
                     (
-                        BufWriter::new(file),
+                        Arc::new(Mutex::new(
+                            BufWriter::new(file)
+                        )),
                         name
                     )
                 }
@@ -82,7 +88,9 @@ impl LogEngine {
                 let first_file = open_option(get_log_path(&data_dir,0))?;
                 readers.lock().unwrap().insert(0,BufReader::new(first_file.try_clone()?));
                 (
-                    BufWriter::new(first_file),
+                    Arc::new(Mutex::new(
+                        BufWriter::new(first_file)
+                    )),
                     0
                 )
             }
@@ -90,55 +98,19 @@ impl LogEngine {
 
         let write_name = Arc::new(AtomicU64::new(write_name));
         // 开启压缩线程
-
         compress(readers.clone(),
                  write_name.clone(),
                  compress_counter.clone())?;
 
         info!("compress_counter ====> -| {} |-",compress_counter.load(Ordering::SeqCst));
         Ok(LogEngine {
-            readers,
-            writer,
-            index,
-            write_name,
-            compress_counter
+            readers, writer,
+            index, write_name,
+            compress_counter,
+            write_buf: Arc::new(Mutex::new(ByteVec::new()))
         })
     }
 
-    /// 往文件中添加 操作数据
-    fn append(&mut self, command_type: CommandType, kv: &KVPair) -> Result<()> {
-        if self.writer.get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
-            let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
-            // 如果文件大小超过规定大小，则创建新文件
-            self.write_name.fetch_add(1_u64,Ordering::SeqCst);
-            let gen = self.write_name.load(Ordering::SeqCst);
-
-            let new_file = open_option(get_log_path(&data_dir,gen))?;
-
-            self.writer =
-                BufWriter::new(new_file.try_clone()?);
-
-            self.readers.lock().unwrap().insert(gen,BufReader::new(new_file));
-            info!("create new data file :{}",gen);
-        }
-
-        let mut data_byte = bincode::serialize(kv)?;
-        let header = RecordHeader::new(command_type as u8,
-                                       checksum(data_byte.as_slice()),
-                                       data_byte.len() as u32);
-
-        let mut header_byte = bincode::serialize(&header)?;
-        info!("append header:{:?}",&header);
-        info!("append data:{:?}",kv);
-        /*
-         将header_byte 和 data_byte进行合并，并且write，注意顺序不能替换
-         因为我们首先是读取定长的 header
-         */
-        header_byte.append(&mut data_byte);
-        self.writer.write_all(header_byte.as_slice())?;
-        self.writer.flush()?;
-        Ok(())
-    }
 }
 impl KvsEngine for LogEngine {
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
@@ -155,7 +127,13 @@ impl KvsEngine for LogEngine {
         self.index.insert(key.to_string(),value.to_string());
         let kv = KVPair::new(key.to_string(),Some(value.to_string()));
         // 持久化log 文件
-        self.append(command_type,&kv)?;
+        data_log_append(
+            self.write_buf.clone(),
+            self.writer.clone(),
+            self.readers.clone(),
+            command_type,
+            self.write_name.clone(),
+            kv)?;
         Ok(())
     }
 
@@ -177,7 +155,13 @@ impl KvsEngine for LogEngine {
                 self.compress_counter.fetch_add(1_usize,Ordering::SeqCst);
                 let kv = KVPair::new(key.to_string(),None);
                 // 持久化log 文件
-                self.append(CommandType::Delete,&kv)?;
+                data_log_append(
+                    self.write_buf.clone(),
+                    self.writer.clone(),
+                    self.readers.clone(),
+                    CommandType::Delete,
+                    self.write_name.clone(),
+                    kv)?;
                 Ok(())
             },
             None => {

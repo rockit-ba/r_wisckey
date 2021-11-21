@@ -33,42 +33,43 @@ pub fn compress(readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
                 // 如果达到压缩阈值，开始压缩
                 if compress_counter.load(Ordering::SeqCst) >= SERVER_CONFIG.compress_threshold {
                     info!("===========> Compress....");
+                    {
+                        let mut readers =  readers.lock().unwrap();
+                        // 将所有文件中的数据加载到内存中，
+                        let mut index = BTreeMap::<String,String>::new();
+                        // 保留压缩后要移除的文件名
+                        let mut file_names = Vec::<u64>::new();
+                        for (file_name,reader) in readers.iter_mut() {
+                            reader.seek(SeekFrom::Start(0))?;
+                            // 同时更新 compress_counter
+                            compress_counter.fetch_sub(load(reader, &mut index)?,Ordering::SeqCst);
+                            file_names.push(*file_name);
+                        }
+                        file_names.iter().for_each(|gen| {
+                            readers.remove(gen);
+                        });
+                        info!("Will compress file_names:{:?}",&file_names);
 
-                    // 将所有文件中的数据加载到内存中，
-                    let mut index = BTreeMap::<String,String>::new();
-                    // 保留压缩后要移除的文件名
-                    let mut file_names = Vec::<u64>::new();
-                    for (file_name,reader) in readers.lock().unwrap().iter_mut() {
-                        reader.seek(SeekFrom::Start(0))?;
-                        // 同时更新 compress_counter
-                        compress_counter.fetch_sub(load(reader, &mut index)?,Ordering::SeqCst);
-                        file_names.push(*file_name);
+                        // 生成要写入压缩数据的文件编号
+                        write_name.fetch_add(1_u64,Ordering::SeqCst);
+                        let gen = write_name.load(Ordering::SeqCst);
+                        // 创建对应的存放新数据的 file 句柄
+                        let mut new_writer = BufWriter::new(open_option(get_log_path(&data_dir,gen))?);
+                        //遍历内存数据将数据写入磁盘
+                        for (key,value) in index.iter() {
+                            let kv = KVPair::new(key.to_string(),Some(value.to_string()));
+                            // 持久化log 文件
+                            append( readers.deref_mut(),
+                                    &write_name,
+                                    &mut new_writer,
+                                    // 压缩之后的类型都是insert的
+                                    CommandType::Insert,
+                                    &kv)?;
+                        }
+                        for file_name in file_names.iter() {
+                            remove_file(get_log_path(&data_dir,*file_name).as_path())?;
+                        }
                     }
-                    file_names.iter().for_each(|gen| {
-                        readers.lock().unwrap().remove(gen);
-                    });
-                    info!("Will compress file_names:{:?}",&file_names);
-
-                    // 生成要写入压缩数据的文件编号
-                    write_name.fetch_add(1_u64,Ordering::SeqCst);
-                    let gen = write_name.load(Ordering::SeqCst);
-                    // 创建对应的存放新数据的 file 句柄
-                    let mut new_writer = BufWriter::new(open_option(get_log_path(&data_dir,gen))?);
-                    //遍历内存数据将数据写入磁盘
-                    for (key,value) in index.iter() {
-                        let kv = KVPair::new(key.to_string(),Some(value.to_string()));
-                        // 持久化log 文件
-                        append( readers.lock().unwrap().deref_mut(),
-                                &write_name,
-                                &mut new_writer,
-                                // 压缩之后的类型都是insert的
-                                CommandType::Insert,
-                                &kv)?;
-                    }
-                    for file_name in file_names.iter() {
-                        remove_file(get_log_path(&data_dir,*file_name).as_path())?;
-                    }
-
                     info!("===========> Compress end ...");
                 };
                 sleep(Duration::from_secs(SERVER_CONFIG.compress_interval));
