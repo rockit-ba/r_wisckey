@@ -16,59 +16,64 @@ use crate::common::types::ByteVec;
 
 const WRITE_BUF_FLUSH_THREAD:&str = "write_buf_flush_thread";
 
+/// 数据文件持久化参数
+pub struct DataAppend {
+    pub write_buf: Arc<Mutex<ByteVec>>,
+    pub writer: Arc<Mutex<BufWriter<File>>>,
+    pub readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
+    pub command_type: CommandType,
+    pub write_name: Arc<AtomicU64>,
+    pub kv: KVPair,
+}
+
 /// 数据持久化磁盘任务
-pub fn data_log_append(write_buf: Arc<Mutex<ByteVec>>,
-                       writer: Arc<Mutex<BufWriter<File>>>,
-                       readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
-                       command_type: CommandType,
-                       write_name: Arc<AtomicU64>,
-                       kv: KVPair) -> Result<()> {
+pub fn data_log_append(data_append: DataAppend) -> Result<()> {
     thread::Builder::new()
         .name(WRITE_BUF_FLUSH_THREAD.to_string())
         .spawn(move || -> Result<()>{
             info!("{:?}",thread::current().name().unwrap());
             {
-                let mut writer = writer.lock().unwrap();
+                let mut writer = data_append.writer.lock().unwrap();
                 if writer.get_ref().metadata()?.len() >= SERVER_CONFIG.file_max_size {
                     let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
                     // 如果文件大小超过规定大小，则创建新文件
-                    write_name.fetch_add(1_u64,Ordering::SeqCst);
-                    let gen = write_name.load(Ordering::SeqCst);
-                    let new_file = open_option(get_log_path(&data_dir,gen))?;
+                    data_append.write_name.fetch_add(1_u64,Ordering::SeqCst);
+                    let gen = data_append.write_name.load(Ordering::SeqCst);
+                    let new_file = open_option(get_log_path(&data_dir,gen,SERVER_CONFIG.data_file_suffix.as_str()))?;
 
                     *writer = BufWriter::new(new_file.try_clone()?);
-                    readers.lock().unwrap().insert(gen,BufReader::new(new_file));
+                    data_append.readers.lock().unwrap().insert(gen,BufReader::new(new_file));
                     info!("create new data file :{}",gen);
                 }
             }
             // 处理 encode
-            let mut data_byte = bincode::serialize(&kv)?;
-            let header = RecordHeader::new(command_type as u8,
+            let mut data_byte = bincode::serialize(&data_append.kv)?;
+            let header = RecordHeader::new(data_append.command_type as u8,
                                            checksum(data_byte.as_slice()),
                                            data_byte.len() as u32);
 
             let mut header_byte = bincode::serialize(&header)?;
             info!("append header:{:?}",&header);
-            info!("append data:{:?}",&kv);
+            info!("append data:{:?}",&data_append.kv);
             /*
              将header_byte 和 data_byte进行合并，并且write，注意顺序不能替换
              因为我们首先是读取定长的 header
              */
             header_byte.append(&mut data_byte);
             info!("当前数据长度：{}",header_byte.len());
+
             {
-                let mut write_buf = write_buf.lock().unwrap();
+                let mut write_buf = data_append.write_buf.lock().unwrap();
                 write_buf.append(&mut header_byte);
                 info!("write_buf数据长度：{}",write_buf.len());
 
                 // 刷盘
                 if write_buf.len() >= SERVER_CONFIG.write_buf_max_size {
-                    let mut writer = writer.lock().unwrap();
+                    let mut writer = data_append.writer.lock().unwrap();
                     loop {
                         // 如果当前缓冲区中数据长度小于 write_buf_max_size，则只writer，不flush。
                         if write_buf.len() < SERVER_CONFIG.write_buf_max_size {
                             writer.write_all(write_buf.as_slice())?;
-                            // todo 添加了WAL 之后将会去除这里的 flush
                             writer.flush()?;
                             // 重置当前的 write_buf
                             *write_buf = ByteVec::new();

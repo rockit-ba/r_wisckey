@@ -21,6 +21,8 @@ use std::ops::{ DerefMut};
 const COMPRESS_THREAD:&str = "compress_thread";
 
 /// 定时检查 compress_counter 并执行压缩
+///
+/// 执行完一次压缩之后
 pub fn compress(readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
                 write_name: Arc<AtomicU64>,
                 compress_counter: Arc<AtomicUsize>) -> Result<()>
@@ -33,6 +35,8 @@ pub fn compress(readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
                 // 如果达到压缩阈值，开始压缩
                 if compress_counter.load(Ordering::SeqCst) >= SERVER_CONFIG.compress_threshold {
                     info!("===========> Compress....");
+                    // todo 压缩之前先触发check_point，然后更换xlog 文件句柄，清空之前的wal 日志。
+                    // 触发check_point 的目的是为了清除 wal 日志，
                     {
                         let mut readers =  readers.lock().unwrap();
                         // 将所有文件中的数据加载到内存中，
@@ -54,7 +58,7 @@ pub fn compress(readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
                         write_name.fetch_add(1_u64,Ordering::SeqCst);
                         let gen = write_name.load(Ordering::SeqCst);
                         // 创建对应的存放新数据的 file 句柄
-                        let mut new_writer = BufWriter::new(open_option(get_log_path(&data_dir,gen))?);
+                        let mut new_writer = BufWriter::new(open_option(get_log_path(&data_dir,gen,SERVER_CONFIG.data_file_suffix.as_str()))?);
                         //遍历内存数据将数据写入磁盘
                         for (key,value) in index.iter() {
                             let kv = KVPair::new(key.to_string(),Some(value.to_string()));
@@ -67,7 +71,10 @@ pub fn compress(readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
                                     &kv)?;
                         }
                         for file_name in file_names.iter() {
-                            remove_file(get_log_path(&data_dir,*file_name).as_path())?;
+                            remove_file(get_log_path(&data_dir,
+                                                     *file_name,
+                                                     SERVER_CONFIG.data_file_suffix.as_str())
+                                .as_path())?;
                         }
                     }
                     info!("===========> Compress end ...");
@@ -91,7 +98,7 @@ fn append(readers: &mut HashMap<u64,BufReader<File>>,
         write_name.fetch_add(1_u64,Ordering::SeqCst);
         let gen = write_name.load(Ordering::SeqCst);
 
-        let new_file = open_option(get_log_path(&data_dir,gen))?;
+        let new_file = open_option(get_log_path(&data_dir,gen,SERVER_CONFIG.data_file_suffix.as_str()))?;
         *writer = BufWriter::new(new_file.try_clone()?);
         readers.insert(gen,BufReader::new(new_file));
         info!("Create new data file :{}",gen);
