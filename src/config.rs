@@ -40,6 +40,11 @@ pub struct ServerConfig {
     pub command_history: String,
     /// write_buf_max_size
     pub write_buf_max_size: usize,
+    /// wal 日志存储目录
+    pub wal_dir: String,
+    pub log_file_suffix: String,
+    pub log_file_extension: String,
+    pub log_file_max_size: usize,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {
