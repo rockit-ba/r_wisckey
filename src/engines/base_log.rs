@@ -1,8 +1,8 @@
 //! 日志存储实现 引擎核心
 
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, remove_file};
 use std::collections::btree_map::BTreeMap;
-use std::{env, fs};
+use std::{env, fs, thread};
 use std::path::{PathBuf, Path};
 use std::ffi::OsStr;
 use std::io::{BufReader, Read, BufWriter, Write};
@@ -21,7 +21,10 @@ use log::info;
 use std::sync::atomic::{AtomicUsize, Ordering, AtomicU64};
 use crate::engines::compress::compress;
 use std::sync::{Arc, Mutex};
-use crate::engines::persistence::{data_log_append, DataAppend};
+use crate::engines::persistence::{data_log_append, DataAppend, flush};
+use std::ops::DerefMut;
+use std::thread::sleep;
+use std::time::Duration;
 
 /// 存储引擎
 #[derive(Debug)]
@@ -35,13 +38,13 @@ pub struct LogEngine {
     // 数据文件写缓冲区
     write_buf: Arc<Mutex<ByteVec>>,
     // WAL 日志文件写句柄
-    wal_writer: BufWriter<File>,
-    wal_write_name: AtomicU64,
+    wal_writer: Arc<Mutex<BufWriter<File>>>,
+    wal_write_name: Arc<AtomicU64>,
 }
 impl LogEngine {
 
     /// 从指定的数据目录打开一个 LogEngine
-    pub fn open() -> anyhow::Result<Self> {
+    pub fn open() -> Result<Self> {
 
         let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
         fs::create_dir_all(&data_dir)?;
@@ -152,20 +155,58 @@ impl LogEngine {
             index, write_name,
             compress_counter,
             write_buf: Arc::new(Mutex::new(ByteVec::new())),
-            wal_writer,wal_write_name
+            wal_writer: Arc::new(Mutex::new(wal_writer)),
+            wal_write_name: Arc::new(wal_write_name)
         })
     }
 
     /// 执行check_point。
-    ///
-    /// 执行该操作之前首先要flush write_buf，然后替换新的 wal_writer 句柄
-    ///
-    /// 然后删除旧的 log 文件
-    pub fn check_point(&mut self) {
+    pub fn check_point(&mut self) -> Result<()> {
+        let writer = self.writer.clone();
+        let write_buf = self.write_buf.clone();
+        let wal_write_name = self.wal_write_name.clone();
+        let wal_writer = self.wal_writer.clone();
 
+        thread::Builder::new()
+            .name("check_point_thread".to_string())
+            .spawn(move || -> Result<()>{
+                loop {
+                    sleep(Duration::from_secs(SERVER_CONFIG.compress_interval));
+                    {
+                        // 首先要flush write_buf
+                        let mut _write_buf = write_buf.lock().unwrap();
+                        flush(writer.clone(),_write_buf.deref_mut())?;
+                    }
+                    // 替换新的wal_writer 句柄
+                    let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
+                    let delete_max_name = wal_write_name.fetch_add(1,Ordering::SeqCst);
+                    {
+                        let mut new_wal_writer = wal_writer.lock().unwrap();
+                        *new_wal_writer = BufWriter::new(
+                            open_option(get_log_path(log_dir.as_path(),
+                                                     wal_write_name.load(Ordering::SeqCst),
+                                                     SERVER_CONFIG.log_file_suffix.as_str()))?);
+                    }
+                    // 删除旧的文件
+                    let names = sorted_gen_list(log_dir.as_path(),
+                                    SERVER_CONFIG.log_file_extension.as_str(),
+                                    SERVER_CONFIG.log_file_suffix.as_str())?;
+                    let names: Vec<&u64> = names.iter().filter(|&&ele| {
+                        ele <= delete_max_name
+                    }).collect();
+
+                    for name in names {
+                        remove_file(get_log_path(&log_dir,
+                                                 *name,
+                                                 SERVER_CONFIG.log_file_suffix.as_str())
+                            .as_path())?;
+                    }
+                };
+            })?;
+        Ok(())
     }
 
-    /// 重演 WAL 日志文件，如果有必要的话
+    /// 重演 WAL 日志文件，如果有必要的话,只在服务启动时调用一次
     pub fn try_recovery(&self) {
         // todo
 
@@ -182,7 +223,7 @@ impl KvsEngine for LogEngine {
             command_type = CommandType::Insert;
         }
         // 写 WAL 的逻辑先于其他逻辑，这里失败将不会走下面的逻辑
-        if let Err(err) = write_ahead_log(&mut self.wal_writer,
+        if let Err(err) = write_ahead_log(self.wal_writer.clone(),
                                           &self.wal_write_name,
                                           &command_type,
                                           key,
@@ -219,7 +260,7 @@ impl KvsEngine for LogEngine {
     }
 
     fn remove(&mut self, key: &str) -> Result<()> {
-        write_ahead_log(&mut self.wal_writer,
+        write_ahead_log(self.wal_writer.clone(),
                         &self.wal_write_name,
                         &CommandType::Delete,
                         key,
@@ -375,7 +416,7 @@ pub fn load(
 /// 我们的data_file 也是append 写入的。但是别忘了，我们将要在不就的将来实现 LSM 模型存储，在
 /// LSM 模型的data_file（SSTable） 中,数据将不会按照用户的写入顺序单条append 写入，因此WAL
 /// 的存在必不可少。
-pub fn write_ahead_log(wal_writer: &mut BufWriter<File>,
+pub fn write_ahead_log(wal_writer: Arc<Mutex<BufWriter<File>>>,
                        wal_write_name: &AtomicU64,
                        command_type: &CommandType,
                        key: &str,
@@ -396,19 +437,33 @@ pub fn write_ahead_log(wal_writer: &mut BufWriter<File>,
     let last_log_file = open_option(get_log_path(log_dir.as_path(),
                                                  wal_write_name.load(Ordering::SeqCst),
                                                  SERVER_CONFIG.log_file_suffix.as_str()))?;
-    if last_log_file.metadata()?.len() >= SERVER_CONFIG.log_file_max_size as u64 {
-        wal_write_name.fetch_add(1,Ordering::SeqCst);
-        *wal_writer = BufWriter::new(
-            open_option(get_log_path(log_dir.as_path(),
-                                     wal_write_name.load(Ordering::SeqCst),
-                                     SERVER_CONFIG.log_file_suffix.as_str()))?
-        );
+    {
+        let mut _wal_writer = wal_writer.lock().unwrap();
+        if last_log_file.metadata()?.len() >= SERVER_CONFIG.log_file_max_size as u64 {
+            wal_write_name.fetch_add(1,Ordering::SeqCst);
+            *_wal_writer = BufWriter::new(
+                open_option(get_log_path(log_dir.as_path(),
+                                         wal_write_name.load(Ordering::SeqCst),
+                                         SERVER_CONFIG.log_file_suffix.as_str()))?
+            );
 
-    }else {
-        *wal_writer = BufWriter::new(last_log_file);
+        }else {
+            *_wal_writer = BufWriter::new(last_log_file);
+        }
+
+        _wal_writer.write_all(log_str.as_bytes())?;
+        _wal_writer.flush()?;
     }
 
-    wal_writer.write_all(log_str.as_bytes())?;
-    wal_writer.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    fn test() {
+
+
+    }
 }
