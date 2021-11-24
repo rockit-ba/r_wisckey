@@ -45,6 +45,8 @@ pub struct ServerConfig {
     pub log_file_suffix: String,
     pub log_file_extension: String,
     pub log_file_max_size: usize,
+    /// 执行check_point 的时间间隔，单位：秒
+    pub check_point_interval: usize,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {

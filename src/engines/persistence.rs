@@ -13,6 +13,7 @@ use crate::common::fn_util::checksum;
 use crate::config::SERVER_CONFIG;
 use log::info;
 use crate::common::types::ByteVec;
+use std::ops::DerefMut;
 
 const WRITE_BUF_FLUSH_THREAD:&str = "write_buf_flush_thread";
 
@@ -69,34 +70,43 @@ pub fn data_log_append(data_append: DataAppend) -> Result<()> {
 
                 // 刷盘
                 if write_buf.len() >= SERVER_CONFIG.write_buf_max_size {
-                    let mut writer = data_append.writer.lock().unwrap();
-                    loop {
-                        // 如果当前缓冲区中数据长度小于 write_buf_max_size，则只writer，不flush。
-                        if write_buf.len() < SERVER_CONFIG.write_buf_max_size {
-                            writer.write_all(write_buf.as_slice())?;
-                            writer.flush()?;
-                            // 重置当前的 write_buf
-                            *write_buf = ByteVec::new();
-                            break;
-                        }
-
-                        let no_flush_len = writer.buffer().len();
-                        // 分隔的长度为 writer 中为write_buf_max_size 减去 writer中未flush的数据长度，二者加起来的长度是 write_buf_max_size
-                        let rest_buf = write_buf.split_off(SERVER_CONFIG.write_buf_max_size - no_flush_len);
-
-                        writer.write_all(write_buf.as_slice())?;
-                        info!("writer len:{}",writer.buffer().len());
-                        writer.flush()?;
-                        info!("writer len:{}",writer.buffer().len());
-
-                        // 让当前的write_buf 等于剩下未flush的 data_buf
-                        *write_buf = rest_buf;
-                    }
+                    flush(data_append.writer.clone(),
+                          write_buf.deref_mut())?;
                 }
             }
 
             Ok(())
         })?;
 
+    Ok(())
+}
+
+pub fn flush(data_append: Arc<Mutex<BufWriter<File>>>,
+             write_buf: &mut ByteVec) -> Result<()>
+{
+
+    let mut writer = data_append.lock().unwrap();
+    loop {
+        // 如果当前缓冲区中数据长度小于 write_buf_max_size，则只writer，不flush。
+        if write_buf.len() < SERVER_CONFIG.write_buf_max_size {
+            writer.write_all(write_buf.as_slice())?;
+            writer.flush()?;
+            // 重置当前的 write_buf
+            *write_buf = ByteVec::new();
+            break;
+        }
+
+        let no_flush_len = writer.buffer().len();
+        // 分隔的长度为 writer 中为write_buf_max_size 减去 writer中未flush的数据长度，二者加起来的长度是 write_buf_max_size
+        let rest_buf = write_buf.split_off(SERVER_CONFIG.write_buf_max_size - no_flush_len);
+
+        writer.write_all(write_buf.as_slice())?;
+        info!("writer len:{}",writer.buffer().len());
+        writer.flush()?;
+        info!("writer len:{}",writer.buffer().len());
+
+        // 让当前的write_buf 等于剩下未flush的 data_buf
+        *write_buf = rest_buf;
+    }
     Ok(())
 }

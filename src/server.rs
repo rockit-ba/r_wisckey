@@ -10,7 +10,6 @@ use crate::common::error_enum::WiscError;
 
 /// 服务实例
 pub struct Server<E: KvsEngine> {
-    #[allow(dead_code)]
     engine: E,
 }
 impl<E: KvsEngine> Server<E> {
@@ -46,57 +45,67 @@ impl<E: KvsEngine> Server<E> {
         let req = bincode::deserialize_from::<BufReader<&TcpStream>,Command>(reader)?;
         info!("接收到请求{:?}",&req);
 
-        let result =  match req {
-            Command::Get(key) => {
-                match self.engine.get(key.as_str()) {
-                    Ok(opt) => {format!("{:?}",opt)},
-                    Err(err) => {format!("{:?}",err)},
-                }
-            },
-
-            Command::Delete(key) =>{
-                match self.engine.remove(key.as_str()) {
-                    Ok(_) => "OK".to_string(),
-                    Err(err) => {format!("{:?}",err)},
-                }
-            },
-
-            Command::Insert(key,value) =>{
-                match self.engine.get(key.as_str()).unwrap() {
-                    Some(_) => {
-                        let desc = format!("{:?}",WiscError::KeyExist(key));
-                        error!("{:?}",&desc);
-                        desc
-                    },
-                    None => {
-                        match self.engine.set(key.as_str(),value.as_str()) {
-                            Ok(_) => "OK".to_string(),
-                            Err(err) => {format!("{:?}",err)},
-                        }
-                    }
-                }
-            },
-
-            Command::Update(key,value) =>{
-                match self.engine.get(key.as_str()).unwrap() {
-                    Some(_) => {
-                        match self.engine.set(key.as_str(),value.as_str()) {
-                            Ok(_) => "OK".to_string(),
-                            Err(err) => {format!("{:?}",err)},
-                        }
-                    },
-                    None => {
-                        let desc = format!("{:?}",WiscError::KeyNotExist(key));
-                        error!("{:?}",&desc);
-                        desc
-                    }
-                }
-            },
-        };
+        let result = client_command_process(&req,&mut self.engine);
         let writer = BufWriter::new(tcp);
         bincode::serialize_into::<BufWriter<&TcpStream>,String>(writer,&result)?;
 
         Ok(())
     }
+
 }
+
+/// 执行 Command
+pub fn client_command_process(command: &Command,
+                              engine: &mut dyn KvsEngine) -> String
+{
+    let result =  match command {
+        Command::Get(key) => {
+            match engine.get(key.as_str()) {
+                Ok(opt) => {format!("{:?}",opt)},
+                Err(err) => {format!("{:?}",err)},
+            }
+        },
+
+        Command::Delete(key) =>{
+            match engine.remove(key.as_str()) {
+                Ok(_) => "OK".to_string(),
+                Err(err) => {format!("{:?}",err)},
+            }
+        },
+
+        Command::Insert(key,value) =>{
+            match engine.get(key.as_str()).unwrap() {
+                Some(_) => {
+                    let desc = format!("{:?}",WiscError::KeyExist(key.clone()));
+                    error!("{:?}",&desc);
+                    desc
+                },
+                None => {
+                    match engine.set(key.as_str(),value.as_str()) {
+                        Ok(_) => "OK".to_string(),
+                        Err(err) => {format!("{:?}",err)},
+                    }
+                }
+            }
+        },
+
+        Command::Update(key,value) =>{
+            match engine.get(key.as_str()).unwrap() {
+                Some(_) => {
+                    match engine.set(key.as_str(),value.as_str()) {
+                        Ok(_) => "OK".to_string(),
+                        Err(err) => {format!("{:?}",err)},
+                    }
+                },
+                None => {
+                    let desc = format!("{:?}",WiscError::KeyNotExist(key.clone()));
+                    error!("{:?}",&desc);
+                    desc
+                }
+            }
+        },
+    };
+    result
+}
+
 
