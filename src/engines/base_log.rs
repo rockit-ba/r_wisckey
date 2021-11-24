@@ -17,7 +17,7 @@ use crate::common::error_enum::WiscError;
 use crate::config::SERVER_CONFIG;
 
 use anyhow::Result;
-use log::info;
+use log::{info,warn};
 use std::sync::atomic::{AtomicUsize, Ordering, AtomicU64};
 use crate::engines::compress::compress;
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,8 @@ use crate::engines::persistence::{data_log_append, DataAppend, flush};
 use std::ops::DerefMut;
 use std::thread::sleep;
 use std::time::Duration;
+use crate::client::command_parser;
+use crate::server::client_command_process;
 
 /// 存储引擎
 #[derive(Debug)]
@@ -172,6 +174,8 @@ impl LogEngine {
             .spawn(move || -> Result<()>{
                 loop {
                     sleep(Duration::from_secs(SERVER_CONFIG.compress_interval));
+                    info!("[开始执行 check_point]");
+
                     {
                         // 首先要flush write_buf
                         let mut _write_buf = write_buf.lock().unwrap();
@@ -201,14 +205,58 @@ impl LogEngine {
                                                  SERVER_CONFIG.log_file_suffix.as_str())
                             .as_path())?;
                     }
+
+                    info!("[执行结束 check_point]");
                 };
+
             })?;
         Ok(())
     }
 
-    /// 重演 WAL 日志文件，如果有必要的话,只在服务启动时调用一次
-    pub fn try_recovery(&self) {
-        // todo
+    /// 重演 WAL 日志文件。
+    /// 注意：只在服务启动时调用一次
+    ///
+    /// 这产生的效果将会按照check_point最后的点重新执行客户端的命令，覆盖之后的所有数据
+    /// 恢复到宕机前的数据
+    pub fn try_recovery(&mut self) -> Result<()> {
+        info!("[尝试重演 xlog 开始...]");
+        let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
+        let names = sorted_gen_list(log_dir.as_path(),
+                                    SERVER_CONFIG.log_file_extension.as_str(),
+                                    SERVER_CONFIG.log_file_suffix.as_str())?;
+
+        // 按照文件名顺序读取log 目录中所有的 .xlog 文件,
+        for name in names {
+            let file = OpenOptions::new().read(true)
+                .open(get_log_path(
+                    &log_dir,
+                    name,
+                    SERVER_CONFIG.log_file_suffix.as_str())
+                )?;
+
+            let mut xlog_reader = BufReader::new(file);
+            let mut command_str = String::new();
+            if command_str.is_empty() {
+                continue;
+            }
+            xlog_reader.read_to_string(&mut command_str)?;
+            let command_vec: Vec<String> = command_str.split(';').map(|ele| {
+                format!("{};",ele)
+            }).collect();
+            // 调用不同命令对应的方法，重演所有的 command 串。
+            command_vec.iter().for_each(|ele| {
+                match command_parser(ele.as_str()) {
+                    Some(_command) => {
+                        client_command_process(&_command,self);
+                    },
+                    None => {warn!("[故障恢复命令解析故障：{}]",ele)},
+                };
+            });
+
+        }
+
+        info!("[尝试重演 xlog 完成。]");
+        Ok(())
 
     }
 }
@@ -456,14 +504,4 @@ pub fn write_ahead_log(wal_writer: Arc<Mutex<BufWriter<File>>>,
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-
-    #[test]
-    fn test() {
-
-
-    }
 }

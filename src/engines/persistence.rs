@@ -81,7 +81,9 @@ pub fn data_log_append(data_append: DataAppend) -> Result<()> {
     Ok(())
 }
 
-pub fn flush(data_append: Arc<Mutex<BufWriter<File>>>,write_buf: &mut ByteVec) -> Result<()> {
+pub fn flush(data_append: Arc<Mutex<BufWriter<File>>>,
+             write_buf: &mut ByteVec) -> Result<()>
+{
 
     let mut writer = data_append.lock().unwrap();
     loop {

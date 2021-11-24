@@ -95,7 +95,7 @@ impl Client {
 /// 客户端命令解析
 ///
 /// insert key value
-fn command_parser(command: &str) -> Option<Command> {
+pub fn command_parser(command: &str) -> Option<Command> {
     let command_arr:Vec<String> = command.trim()
         .replace(";","")
         .trim()

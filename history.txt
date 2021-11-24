@@ -1,8 +1,4 @@
 #V2
-dsfdsf\n;
-fdsfdsf;
-get aa;
-get\naa;
 get aa;
 get aa\n;
 get aa;
@@ -99,3 +95,7 @@ insert 蕾姆 从零开始异世界;
 insert 拉姆 从零开始异世界;
 insert 猎肠者 从零开始异世界;
 update 猎肠者 从零开始异世界;
+insert 米迦 终结的炽天使;
+insert 米迦2 终结的炽天使2;
+get 米迦2;
+insert 米迦3 终结的炽天使3;
