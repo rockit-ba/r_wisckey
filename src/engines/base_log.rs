@@ -156,6 +156,15 @@ impl LogEngine {
         })
     }
 
+    /// 执行check_point。
+    ///
+    /// 执行该操作之前首先要flush write_buf，然后替换新的 wal_writer 句柄
+    ///
+    /// 然后删除旧的 log 文件
+    pub fn check_point(&mut self) {
+
+    }
+
     /// 重演 WAL 日志文件，如果有必要的话
     pub fn try_recovery(&self) {
         // todo

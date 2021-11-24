@@ -38,5 +38,8 @@ log_file_suffix: .xlog
 log_file_extension: xlog
 log_file_max_size: 1024
 
+# 执行check_point 的时间间隔，单位：秒
+check_point_interval: 30
+
 
 

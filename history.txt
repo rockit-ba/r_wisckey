@@ -1,8 +1,4 @@
 #V2
-\n
- 
-\n
-sdfd
 dsfdsf\n;
 fdsfdsf;
 get aa;
@@ -99,3 +95,7 @@ update 猎肠者 从零开始异世界;
 get 拉姆;
 get 蕾姆;
 get 猎肠者;
+insert 蕾姆 从零开始异世界;
+insert 拉姆 从零开始异世界;
+insert 猎肠者 从零开始异世界;
+update 猎肠者 从零开始异世界;
