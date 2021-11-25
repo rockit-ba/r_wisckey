@@ -30,6 +30,17 @@ cargo run --bin wisc_client
 
 详细的相关资料可查看相关的一些论文或者参考`levelDB` 的wiki。
 
+**大概的操作流程**：
+
+1.写WAL LOG
+
+2.更新内存：`MemTable`
+
+3.当`MemTable` size 达到一定程度的时候。把`Memtable`变成不可变的内存块。 把这个不可变的内存块与磁盘上的`SSTable`文件进行合并。
+
+4.磁盘上的`SSTable`根据新旧先后分层。总是上面一层的与下面一层的合并。
+
+5.读的时候先查`MemTable`，没有的时候，再顺次从`Level-0`~`Level-N`里面的`SSTable` 中查找。
 ## **current version**： `base_lsm_0.1.0`：LSM。
 
 待更新。。。
