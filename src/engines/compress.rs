@@ -35,8 +35,6 @@ pub fn compress(readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
                 // 如果达到压缩阈值，开始压缩
                 if compress_counter.load(Ordering::SeqCst) >= SERVER_CONFIG.compress_threshold {
                     info!("===========> Compress....");
-                    // todo 压缩之前先触发check_point，然后更换xlog 文件句柄，清空之前的wal 日志。
-                    // 触发check_point 的目的是为了清除 wal 日志，
                     {
                         let mut readers =  readers.lock().unwrap();
                         // 将所有文件中的数据加载到内存中，
