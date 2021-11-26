@@ -36,11 +36,21 @@ cargo run --bin wisc_client
 
 2.更新内存：`MemTable`
 
-3.当`MemTable` size 达到一定程度的时候。把`Memtable`变成不可变的内存块。 把这个不可变的内存块与磁盘上的`SSTable`文件进行合并。
+3.当`MemTable` size 达到一定程度的时候。把`Memtable`变成不可变的内存块。 
+把这个不可变的内存块与磁盘上的`SSTable`文件进行合并,释放对应的 log 文件。
 
 4.磁盘上的`SSTable`根据新旧先后分层。总是上面一层的与下面一层的合并。
 
 5.读的时候先查`MemTable`，没有的时候，再顺次从`Level-0`~`Level-N`里面的`SSTable` 中查找。
+
+最基础也是最重要的模块：**Log**，**MemTable**，**ImuTable**，**SSTable**。请务必理解他们之间的数据流转过程。
+
+levelDB中还有两个文件：**CURRENT**, **Manifest**。
+
+`CURRENT`: 中记录所有level中每个`SSTable` 的key range和一些其它元数据，它以日志格式存储，记录所有sst文件的修改记录。
+
+`Manifest`: 记录当前的manifest文件名。
+
 ## **current version**： `base_lsm_0.1.0`：LSM。
 
 待更新。。。
