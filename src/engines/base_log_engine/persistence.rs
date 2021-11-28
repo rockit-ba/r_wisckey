@@ -3,13 +3,12 @@
 use std::sync::{Arc, Mutex};
 use std::io::{BufWriter, BufReader, Write};
 use std::fs::File;
-use crate::engines::record::{CommandType, KVPair, RecordHeader};
+use crate::engines::base_log_engine::record::{CommandType, KVPair, RecordHeader};
 use anyhow::Result;
 use std::sync::atomic::{Ordering, AtomicU64};
 use std::{env, thread};
-use crate::engines::base_log::{open_option, get_log_path};
 use std::collections::HashMap;
-use crate::common::fn_util::checksum;
+use crate::common::fn_util::{checksum, open_option_default, get_file_path};
 use crate::config::SERVER_CONFIG;
 use log::info;
 use crate::common::types::ByteVec;
@@ -40,7 +39,7 @@ pub fn data_log_append(data_append: DataAppend) -> Result<()> {
                     // 如果文件大小超过规定大小，则创建新文件
                     data_append.write_name.fetch_add(1_u64,Ordering::SeqCst);
                     let gen = data_append.write_name.load(Ordering::SeqCst);
-                    let new_file = open_option(get_log_path(&data_dir,gen,SERVER_CONFIG.data_file_suffix.as_str()))?;
+                    let new_file = open_option_default(get_file_path(&data_dir, gen, SERVER_CONFIG.data_file_suffix.as_str()))?;
 
                     *writer = BufWriter::new(new_file.try_clone()?);
                     data_append.readers.lock().unwrap().insert(gen,BufReader::new(new_file));

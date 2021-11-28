@@ -3,15 +3,13 @@
 use std::fs::{File, OpenOptions, remove_file};
 use std::collections::btree_map::BTreeMap;
 use std::{env, fs, thread};
-use std::path::{PathBuf, Path};
-use std::ffi::OsStr;
-use std::io::{BufReader, Read, BufWriter, Write};
+use std::io::{BufReader, Read, BufWriter};
 use std::collections::HashMap;
 
 use crate::{KvsEngine};
-use crate::engines::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair, CommandType};
-use crate::engines::Scans;
-use crate::common::fn_util::{checksum, is_eof_err};
+use crate::engines::base_log_engine::record::{RECORD_HEADER_SIZE, RecordHeader, KVPair, CommandType};
+use crate::engines::{Scans, write_ahead_log, init_wal};
+use crate::common::fn_util::{checksum, is_eof_err, open_option_default, sorted_gen_list, get_file_path};
 use crate::common::types::ByteVec;
 use crate::common::error_enum::WiscError;
 use crate::config::SERVER_CONFIG;
@@ -19,9 +17,9 @@ use crate::config::SERVER_CONFIG;
 use anyhow::Result;
 use log::{info,warn};
 use std::sync::atomic::{AtomicUsize, Ordering, AtomicU64};
-use crate::engines::compress::compress;
+use crate::engines::base_log_engine::compress::compress;
 use std::sync::{Arc, Mutex};
-use crate::engines::persistence::{data_log_append, DataAppend, flush};
+use crate::engines::base_log_engine::persistence::{data_log_append, DataAppend, flush};
 use std::ops::DerefMut;
 use std::thread::sleep;
 use std::time::Duration;
@@ -52,38 +50,7 @@ impl LogEngine {
         fs::create_dir_all(&data_dir)?;
 
         // 初始化 wal_writer
-        let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
-        fs::create_dir_all(&log_dir)?;
-        let log_names = sorted_gen_list(log_dir.as_path(),
-                                         SERVER_CONFIG.log_file_extension.as_ref(),
-                                         SERVER_CONFIG.log_file_suffix.as_ref())?;
-        let wal_writer;
-        let wal_write_name;
-        if log_names.is_empty() {
-            wal_write_name = AtomicU64::new(0);
-            wal_writer = BufWriter::new(
-                open_option(get_log_path(log_dir.as_path(),
-                                         wal_write_name.load(Ordering::SeqCst),
-                                         SERVER_CONFIG.log_file_suffix.as_str()))?
-            );
-
-        }else {
-            wal_write_name = AtomicU64::new(*log_names.last().unwrap());
-            let last_log_file = open_option(get_log_path(log_dir.as_path(),
-                                                         wal_write_name.load(Ordering::SeqCst),
-                                                         SERVER_CONFIG.log_file_suffix.as_str()))?;
-            if last_log_file.metadata()?.len() >= SERVER_CONFIG.log_file_max_size as u64 {
-                wal_write_name.fetch_add(1,Ordering::SeqCst);
-                wal_writer = BufWriter::new(
-                    open_option(get_log_path(log_dir.as_path(),
-                                             wal_write_name.load(Ordering::SeqCst),
-                                             SERVER_CONFIG.log_file_suffix.as_str()))?
-                );
-
-            }else {
-                wal_writer = BufWriter::new(last_log_file);
-            }
-        }
+        let (wal_writer,wal_write_name) = init_wal()?;
 
         // 初始化 其它
         let readers = Arc::new(Mutex::new(HashMap::<u64,BufReader<File>>::new()));
@@ -97,7 +64,7 @@ impl LogEngine {
 
         for &name in &data_names {
             let mut reader = BufReader::new(
-                File::open(get_log_path(data_dir.as_path(), name, SERVER_CONFIG.data_file_suffix.as_str()))?
+                File::open(get_file_path(data_dir.as_path(), name, SERVER_CONFIG.data_file_suffix.as_str()))?
             );
             // 加载log文件到index中，在这个过程中不断执行insert 和remove操作，根据set 或者 rm
             // 同时记录压缩统计
@@ -111,14 +78,14 @@ impl LogEngine {
         let (writer,write_name) = match curr_log {
             // 如果存在最后写入数据的文件
             Some(&name) => {
-                let file = open_option(get_log_path(&data_dir,name,SERVER_CONFIG.data_file_suffix.as_str()))?;
+                let file = open_option_default(get_file_path(&data_dir, name, SERVER_CONFIG.data_file_suffix.as_str()))?;
                 if file.metadata()?.len() >= SERVER_CONFIG.file_max_size {
                     // 如果文件大小超过规定大小，则创建新文件
                     (
                         Arc::new(Mutex::new(
-                            BufWriter::new(open_option(get_log_path(&data_dir,
-                                                                    name + 1,
-                                                                    SERVER_CONFIG.data_file_suffix.as_str()))?
+                            BufWriter::new(open_option_default(get_file_path(&data_dir,
+                                                                             name + 1,
+                                                                             SERVER_CONFIG.data_file_suffix.as_str()))?
                             )
                         )),
                         name + 1
@@ -134,7 +101,7 @@ impl LogEngine {
             },
             None => {
                 // 如果不存在任何一个文件，则创建初始的文件
-                let first_file = open_option(get_log_path(&data_dir,0,SERVER_CONFIG.data_file_suffix.as_str()))?;
+                let first_file = open_option_default(get_file_path(&data_dir, 0, SERVER_CONFIG.data_file_suffix.as_str()))?;
                 readers.lock().unwrap().insert(0,BufReader::new(first_file.try_clone()?));
                 (
                     Arc::new(Mutex::new(
@@ -187,9 +154,9 @@ impl LogEngine {
                     {
                         let mut new_wal_writer = wal_writer.lock().unwrap();
                         *new_wal_writer = BufWriter::new(
-                            open_option(get_log_path(log_dir.as_path(),
-                                                     wal_write_name.load(Ordering::SeqCst),
-                                                     SERVER_CONFIG.log_file_suffix.as_str()))?);
+                            open_option_default(get_file_path(log_dir.as_path(),
+                                                              wal_write_name.load(Ordering::SeqCst),
+                                                              SERVER_CONFIG.log_file_suffix.as_str()))?);
                     }
                     // 删除旧的文件
                     let names = sorted_gen_list(log_dir.as_path(),
@@ -200,9 +167,9 @@ impl LogEngine {
                     }).collect();
 
                     for name in names {
-                        remove_file(get_log_path(&log_dir,
-                                                 *name,
-                                                 SERVER_CONFIG.log_file_suffix.as_str())
+                        remove_file(get_file_path(&log_dir,
+                                                  *name,
+                                                  SERVER_CONFIG.log_file_suffix.as_str())
                             .as_path())?;
                     }
 
@@ -228,7 +195,7 @@ impl LogEngine {
         // 按照文件名顺序读取log 目录中所有的 .xlog 文件,
         for name in names {
             let file = OpenOptions::new().read(true)
-                .open(get_log_path(
+                .open(get_file_path(
                     &log_dir,
                     name,
                     SERVER_CONFIG.log_file_suffix.as_str())
@@ -341,44 +308,6 @@ impl KvsEngine for LogEngine {
 }
 
 
-/// 默认的文件句柄option
-pub fn open_option(path: PathBuf) -> Result<File> {
-    Ok(OpenOptions::new()
-        .read(true)
-        .create(true)
-        .write(true)
-        .append(true)
-        .open(path)?)
-}
-
-///  排序数据目录下的所有的数据文件，获取文件名集合
-fn sorted_gen_list(path: &Path,file_extension: &str, file_suffix:&str) -> Result<Vec<u64>> {
-    let mut gen_list: Vec<u64> = fs::read_dir(&path)?
-        .flat_map(|res| -> anyhow::Result<_> {
-            Ok(res?.path())
-        })
-        // 过滤属于文件的path，并且文件扩展名是 wisc
-        .filter(|path| path.is_file() && path.extension() == Some(OsStr::new(file_extension)))
-        // 过滤出需要的 path
-        .flat_map(|path| {
-            // 获取文件名
-            path.file_name()
-                .and_then(OsStr::to_str)
-                .map(|s| s.trim_end_matches(file_suffix))
-                .map(str::parse::<u64>)
-        })
-        // 扁平化，相当于去除flat 包装，取得里面的 u64 集合
-        .flatten()
-        .collect();
-    gen_list.sort_unstable();
-    Ok(gen_list)
-}
-
-/// 根据数据目录和文件编号获取指定的文件地址
-pub fn get_log_path(dir: &Path, gen: u64, file_suffix: &str) -> PathBuf {
-    dir.join(format!("{}{}", gen, file_suffix))
-}
-
 /// 加载单个文件中的单个record
 ///
 /// (KVPair,bool)  bool 代表是否需要压缩
@@ -444,64 +373,4 @@ pub fn load(
         if is_compress {compress_counter += 1 }
     }
     Ok(compress_counter)
-}
-
-
-/// 写 WAL 日志。
-///
-/// 就传统的关系型数据库，通常来说我们会在一次事务提交之后对`log_buf`中的数据进行 flush。
-/// 当此次操作的 WAL 日志持久化之后我们才返回客户端此次操作success。
-///
-/// 另外的可选方案是定时flush log_buf，例如每秒flush一次，极端情况下，我们可能丢失一秒内
-/// 客户端的操作数据。
-///
-/// 如果我们需要数据库的基本ACID特性，我们将不会选择定时，而是选择 用户提交事务即持久化。
-/// 用户可能一次进行单条数据修改，也可能多个。
-///
-/// 因此现在我们选择：每次客户端的数据修改操作（除了 查询操作）都进行 log 记录并 flush。
-///
-///PS：这里可能显得有些多余，因为我们可以选择直接在data_file存储中进行每次flush，因为目前来说
-/// 我们的data_file 也是append 写入的。但是别忘了，我们将要在不就的将来实现 LSM 模型存储，在
-/// LSM 模型的data_file（SSTable） 中,数据将不会按照用户的写入顺序单条append 写入，因此WAL
-/// 的存在必不可少。
-pub fn write_ahead_log(wal_writer: Arc<Mutex<BufWriter<File>>>,
-                       wal_write_name: &AtomicU64,
-                       command_type: &CommandType,
-                       key: &str,
-                       value: Option<&str>) -> Result<()> {
-    let log_str = match command_type {
-        CommandType::Insert => {
-            format!("{} {} {};","insert",key,value.unwrap())
-        },
-        CommandType::Delete =>{
-            format!("{} {};","delete",key)
-        },
-        CommandType::Update => {
-            format!("{} {} {};","update",key,value.unwrap())
-        }
-    };
-
-    let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
-    let last_log_file = open_option(get_log_path(log_dir.as_path(),
-                                                 wal_write_name.load(Ordering::SeqCst),
-                                                 SERVER_CONFIG.log_file_suffix.as_str()))?;
-    {
-        let mut _wal_writer = wal_writer.lock().unwrap();
-        if last_log_file.metadata()?.len() >= SERVER_CONFIG.log_file_max_size as u64 {
-            wal_write_name.fetch_add(1,Ordering::SeqCst);
-            *_wal_writer = BufWriter::new(
-                open_option(get_log_path(log_dir.as_path(),
-                                         wal_write_name.load(Ordering::SeqCst),
-                                         SERVER_CONFIG.log_file_suffix.as_str()))?
-            );
-
-        }else {
-            *_wal_writer = BufWriter::new(last_log_file);
-        }
-
-        _wal_writer.write_all(log_str.as_bytes())?;
-        _wal_writer.flush()?;
-    }
-
-    Ok(())
 }

@@ -11,10 +11,10 @@ use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use std::io::{BufWriter, BufReader, Write, SeekFrom, Seek};
 use std::fs::{File, remove_file};
-use crate::engines::base_log::{open_option, get_log_path, load};
+use crate::engines::base_log_engine::base_log::{ load};
 use std::collections::{HashMap, BTreeMap};
-use crate::engines::record::{CommandType, KVPair, RecordHeader};
-use crate::common::fn_util::checksum;
+use crate::engines::base_log_engine::record::{CommandType, KVPair, RecordHeader};
+use crate::common::fn_util::{checksum, open_option_default, get_file_path};
 use std::ops::{ DerefMut};
 
 /// 压缩任务的线程 `name`
@@ -56,7 +56,7 @@ pub fn compress(readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
                         write_name.fetch_add(1_u64,Ordering::SeqCst);
                         let gen = write_name.load(Ordering::SeqCst);
                         // 创建对应的存放新数据的 file 句柄
-                        let mut new_writer = BufWriter::new(open_option(get_log_path(&data_dir,gen,SERVER_CONFIG.data_file_suffix.as_str()))?);
+                        let mut new_writer = BufWriter::new(open_option_default(get_file_path(&data_dir, gen, SERVER_CONFIG.data_file_suffix.as_str()))?);
                         //遍历内存数据将数据写入磁盘
                         for (key,value) in index.iter() {
                             let kv = KVPair::new(key.to_string(),Some(value.to_string()));
@@ -69,9 +69,9 @@ pub fn compress(readers: Arc<Mutex<HashMap<u64,BufReader<File>>>>,
                                     &kv)?;
                         }
                         for file_name in file_names.iter() {
-                            remove_file(get_log_path(&data_dir,
-                                                     *file_name,
-                                                     SERVER_CONFIG.data_file_suffix.as_str())
+                            remove_file(get_file_path(&data_dir,
+                                                      *file_name,
+                                                      SERVER_CONFIG.data_file_suffix.as_str())
                                 .as_path())?;
                         }
                     }
@@ -96,7 +96,7 @@ fn append(readers: &mut HashMap<u64,BufReader<File>>,
         write_name.fetch_add(1_u64,Ordering::SeqCst);
         let gen = write_name.load(Ordering::SeqCst);
 
-        let new_file = open_option(get_log_path(&data_dir,gen,SERVER_CONFIG.data_file_suffix.as_str()))?;
+        let new_file = open_option_default(get_file_path(&data_dir, gen, SERVER_CONFIG.data_file_suffix.as_str()))?;
         *writer = BufWriter::new(new_file.try_clone()?);
         readers.insert(gen,BufReader::new(new_file));
         info!("Create new data file :{}",gen);
