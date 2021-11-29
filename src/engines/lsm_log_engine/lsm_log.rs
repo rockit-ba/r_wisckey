@@ -5,14 +5,14 @@ use crate::KvsEngine;
 use crate::engines::{Scans, init_wal, write_ahead_log};
 use std::sync::{Arc, Mutex};
 use std::io::BufWriter;
-use std::fs::{File, create_dir, create_dir_all};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::fs::{File};
+use std::sync::atomic::{AtomicU64};
 use crate::config::SERVER_CONFIG;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::path::PathBuf;
-use crate::common::fn_util::{sorted_gen_list, open_option_default, get_file_path, init_file_writer};
-use crate::engines::base_log_engine::record::CommandType;
+use crate::engines::lsm_log_engine::log_record::CommandType;
+use crate::common::fn_util::init_file_writer;
 
 #[derive(Debug)]
 pub struct LsmLogEngine {
@@ -46,38 +46,24 @@ impl LsmLogEngine {
         Ok(LsmLogEngine {
             wal_writer: Arc::new(Mutex::new(wal_writer)),
             wal_write_name: Arc::new(wal_write_name),
-            mem_table: Arc::new(mem_table_vec),
+            mem_table: Arc::new(mem_table_group),
             sst_writer: Arc::new(sst_writer),
             sst_write_name: Arc::new(sst_write_name)
         })
     }
 
-    pub fn get_mut_table(&mut self) -> &mut BTreeMap<String,String> {
-        self.mem_table.get_mut(&true).unwrap()
-    }
-    pub fn get_table(&self) -> &BTreeMap<String,String> {
-        self.mem_table.get(&true).unwrap()
-    }
 }
 impl KvsEngine for LsmLogEngine {
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
-        // command_type key存在执行set 必定是 update；反之亦然
-        let command_type;
-        if self.index.get(key).is_some() {
-            command_type = CommandType::Update;
-        }else {
-            command_type = CommandType::Insert;
-        }
+
         // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
         if let Err(err) = write_ahead_log(self.wal_writer.clone(),
                                           &self.wal_write_name,
-                                          &command_type,
+                                          &CommandType::Delete,
                                           key,
                                           Some(value)) {
             return Err(err);
         }
-        let mut_table = self.get_mut_table();
-
 
         Ok(())
     }

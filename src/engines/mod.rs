@@ -1,21 +1,17 @@
 use std::ops::Range;
-
 use serde_derive::{Deserialize, Serialize};
-
-pub use base_log_engine::base_log::LogEngine;
 use std::io::{BufWriter, Write};
 use std::sync::atomic::{Ordering, AtomicU64};
-use crate::common::fn_util::{open_option_default, get_file_path, sorted_gen_list, init_file_writer};
-use crate::engines::base_log_engine::record::CommandType;
+use crate::common::fn_util::{open_option_default, get_file_path, init_file_writer};
+use lsm_log_engine::log_record::CommandType;
 use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use std::fs::File;
-use std::{env, fs};
+use std::{env};
 use crate::config::SERVER_CONFIG;
 
-
-mod base_log_engine;
-mod lsm_log_engine;
+pub use lsm_log_engine::lsm_log::LsmLogEngine;
+pub mod lsm_log_engine;
 
 pub trait KvsEngine  {
     /// 设置字符串键值对
