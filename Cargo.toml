@@ -20,8 +20,9 @@ lazy_static = "~1.4.0"
 clap = "2.33.3"
 rustyline = "9.0.0"
 rustyline-derive = "0.5.0"
-#crossbeam = "0.8.0"
-#crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam.git", branch = "master" }
+crossbeam = "0.8.0"
+crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam.git", branch = "master" }
+chrono = "0.4.19"
 #rayon = "1.5.1"
 #num_cpus = "1.13.0"
 #uuid = { version = "~0.8.2", features = ["v4"] }

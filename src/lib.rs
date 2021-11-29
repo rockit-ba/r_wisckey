@@ -4,8 +4,7 @@ pub mod config;
 mod server;
 mod client;
 
-pub use engines::LogEngine;
-pub use engines::{KvsEngine};
+pub use engines::{KvsEngine,LsmLogEngine};
 pub use server::Server;
 pub use client::Client;
 

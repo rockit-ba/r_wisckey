@@ -28,7 +28,7 @@ pub struct ServerConfig {
     pub data_file_suffix: String,
     /// 数据文件的扩展名
     pub data_file_extension: String,
-    /// 据文件最大容量
+    /// 数据文件最大容量
     pub file_max_size: u64,
     /// 压缩阈值
     pub compress_threshold: usize,
@@ -47,6 +47,11 @@ pub struct ServerConfig {
     pub log_file_max_size: usize,
     /// 执行check_point 的时间间隔，单位：秒
     pub check_point_interval: usize,
+    // LSM 配置
+
+    pub level_dirs: Vec<u8>,
+    pub level_0_max_size: usize,
+    pub level_expansion_factor: usize,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {
