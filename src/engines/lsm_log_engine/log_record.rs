@@ -19,9 +19,9 @@ pub const RECORD_HEADER_SIZE:usize = 4 + 4 + 1;
 /// 日志文件达到预定大小（4MB）
 pub const LOG_FILE_MAX_SIZE:usize = 1024 * 1024 * 4;
 
-/// 存储磁盘的引用结构
+/// WAL日志写入的引用结构
 #[derive(Debug)]
-pub struct LogRecord {
+pub struct LogRecordWrite {
     // 当前 log 文件的写句柄
     block_writer: BufWriter<File>,
     // 上一次add_process的RecordType
@@ -31,7 +31,7 @@ pub struct LogRecord {
     // 当前block剩余的空间，初始化就是满的 BLOCK_SIZE
     block_writer_rest_len: usize,
 }
-impl LogRecord {
+impl LogRecordWrite {
     /// 初始化 LogRecord 实体
     pub fn new() -> Result<Self> {
         let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
@@ -41,7 +41,7 @@ impl LogRecord {
         let log_file = open_option_default(log_dir.join(file_name.as_str()))?;
         // 当前 log 文件的写句柄
         let block_writer = BufWriter::with_capacity(BLOCK_SIZE,log_file);
-        Ok(LogRecord {
+        Ok(LogRecordWrite {
             block_writer,
             last_record_type: RecordType::NoneType,
             data_rest_len: 0,   // 无data
@@ -116,7 +116,6 @@ impl LogRecord {
 
         Ok(())
     }
-
     /// 写 指定type的record；并flush 和更新 block_writer_rest_len
     fn write_for_type(&mut self,
                       data_byte: &mut ByteVec,
@@ -136,9 +135,19 @@ impl LogRecord {
         // 注意，不能直接重置为 BLOCK_SIZE，因为它可能是不满 block的
         self.block_writer_rest_len = self.block_writer_rest_len - data_byte.len();
         self.last_record_type = _type;
+        info!("当前record {:?}",&record_header);
         info!("当前record type：{:?}",self.last_record_type);
         Ok(())
     }
+
+}
+
+/// WAL日志读取的引用结构
+#[derive(Debug)]
+pub struct LogRecordRead {
+    // wal 文件始终只存在一个，服务器运行的过程中，
+    // 服务器启动的时候log 文件夹中也只有一个，
+    // 运行过程中创建新文件之前要先删除旧log 文件
 }
 
 /// header 结构布局
@@ -200,13 +209,13 @@ impl KVPair {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::io::Read;
+    use std::io::{Read, BufReader};
     use crate::common::fn_util::log_init;
 
     #[test]
     fn add_records_01_test() -> Result<()> {
         log_init();
-        let mut log_record = LogRecord::new()?;
+        let mut log_record = LogRecordWrite::new()?;
         let mut str = String::new();
         File::open("a.txt")?.read_to_string(&mut str);
         let data = KVPair::new("a".to_string(),Some(str));
@@ -217,7 +226,7 @@ mod test {
     #[test]
     fn add_records_02_test() -> Result<()> {
         log_init();
-        let mut log_record = LogRecord::new()?;
+        let mut log_record = LogRecordWrite::new()?;
         let data1 = KVPair::new("a".to_string(),Some("aa".to_string()));
         log_record.add_records(&data1)?;
 
@@ -226,6 +235,34 @@ mod test {
         let data3 = KVPair::new("c".to_string(),Some("cc".to_string()));
         log_record.add_records(&data3)?;
         Ok(())
+    }
+
+    #[test]
+    fn read_test() -> Result<()> {
+        let mut file = File::open("log/1638262824241.xlog")?;
+        let mut reader = BufReader::new(file);
+
+        let mut buffer = [0; BLOCK_SIZE];
+        reader.read(&mut buffer)?;
+        let mut buffer = ByteVec::from(buffer);
+        let rest_data = buffer.split_off(RECORD_HEADER_SIZE);
+
+        let header = bincode::deserialize::<RecordHeader>(buffer.as_slice())?;
+        println!("{:?}",header);
+
+        let _type = header._type;
+        println!("{:?}",_type);
+        if _type == RecordType::FirstType as u8 {
+
+        }
+
+
+        Ok(())
+    }
+
+    #[test]
+    fn test(){
+
     }
 
 }
