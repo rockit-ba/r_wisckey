@@ -21,10 +21,6 @@ pub const BLOCK_SIZE:usize = 1024 * 32;
 pub const RECORD_HEADER_SIZE:usize = 4 + 4 + 1;
 /// 日志文件达到预定大小（4MB）
 pub const LOG_FILE_MAX_SIZE:usize = 1024 * 1024 * 4;
-/// 增长序列的长度
-pub const SEQUENCE_SIZE:usize = 8;
-/// sst 文件中的 data_type 长度
-pub const DATA_TYPE_SIZE:usize = 1;
 
 /// WAL日志写入的引用结构
 #[derive(Debug)]
@@ -57,6 +53,8 @@ impl LogRecordWrite {
     }
 
     /// 往 log 中添加 record
+    ///
+    /// 调用该方法之前初始化 Key，这里只负责写入
     pub fn add_records(&mut self,data: &Key, value: Option<&mut ByteVec>) -> Result<()> {
         let mut data_byte = bincode::serialize(data)?;
         if let Some(value) = value {
@@ -168,7 +166,7 @@ pub struct LogRecordRead {
     // 已读长度
     have_read_len: u64,
     // data 容器
-    recovery_data: HashMap<String,String>,
+    recovery_data: HashMap<String,KV>,
 }
 impl LogRecordRead {
     pub fn new() -> Result<Self> {
@@ -196,46 +194,56 @@ impl LogRecordRead {
     pub fn read_log(&mut self) -> Result<()> {
         if let Some(reader) = self.block_reader.as_mut() {
             while self.have_read_len < reader.get_ref().metadata()?.len() {
-                read_block_process(reader)?;
+                read_block_process(reader,
+                                   self.have_read_len.borrow_mut(),
+                                   self.recovery_data.borrow_mut())?;
             }
         };
         Ok(())
     }
-
 }
 /// 处理一个block的数据
-fn read_block_process(block_reader: &mut BufReader<File>) -> Result<()> {
+fn read_block_process(block_reader: &mut BufReader<File>,
+                      have_read_len: &mut u64,
+                      recovery_data: &mut HashMap<String,KV>,) -> Result<()> {
     let mut buffer = [0; BLOCK_SIZE];
-    block_reader.read_exact(&mut buffer)?;
+    // 自增 已读取 的长度
+    *have_read_len += block_reader.read(&mut buffer)? as u64;
 
     let mut buffer = ByteVec::from(buffer);
-
-    read_record_process(&mut buffer)?;
+    read_record_process(&mut buffer, recovery_data)?;
     Ok(())
 
 }
 
 /// 处理一条record
-fn read_record_process(buffer: &mut ByteVec) -> Result<()> {
+fn read_record_process(buffer: &mut ByteVec,
+                       recovery_data: &mut HashMap<String,KV>) -> Result<()> {
+    // 先读取header信息
     let mut rest_data = buffer.split_off(RECORD_HEADER_SIZE);
-
     let header = bincode::deserialize::<RecordHeader>(buffer.as_slice())?;
     println!("{:?}",header);
 
+    // block空的尾部，此次block读取完毕
     if header._type == RecordType::None as u8 {
-        // block空的尾部，此次block读取完毕
         Ok(())
     }
+    // 读取 header 中data_len 的数据即可得到数据
     else if header._type == RecordType::Full as u8 {
-        // 读取 header 中data_len 的数据即可得到数据
-        let rest_data = rest_data.split_off(header.data_len as usize);
-        let kv = bincode::deserialize::<Key>(rest_data.as_slice())?;
-        Ok(())
+        let mut value_data = rest_data.split_off(header.key_len as usize);
+        let key = bincode::deserialize::<Key>(rest_data.as_slice())?;
 
+        let mut rest_data = value_data.split_off(key.value_size as usize);
+        let value = bincode::deserialize::<String>(value_data.as_slice())?;
+        recovery_data.insert(key.get_sort_key(),KV::new(key,Some(value)));
+        // 继续执行
+        read_record_process(&mut rest_data, recovery_data)?;
+        Ok(())
     }
     else if header._type == RecordType::First as u8 ||
         header._type == RecordType::Middle as u8 {
-        // 往kv_pair_byte 中填充数据，并继续调用
+        // 往kv_pair_byte 中填充数据
+
         Ok(())
     }
     else {
@@ -243,28 +251,27 @@ fn read_record_process(buffer: &mut ByteVec) -> Result<()> {
         // 往kv_pair_byte 中填充数据，并结束调用，可返回数据
         let a = "";
         Ok(())
-
     }
-
 }
 
 /// header 结构布局
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct RecordHeader {
     pub checksum: u32,
-    pub data_len: u32,
+    // 这里的指的是 Key 机构体的长度
+    pub key_len: u32,
     pub _type: u8,
 }
 impl RecordHeader {
     pub fn new(checksum: u32, data_len: u32, _type: u8) -> Self {
-        RecordHeader { checksum, data_len, _type }
+        RecordHeader { checksum, key_len: data_len, _type }
     }
 }
 impl Default for RecordHeader {
     fn default() -> Self {
         RecordHeader {
             checksum: 0,
-            data_len: 0,
+            key_len: 0,
             _type: RecordType::None as u8
         }
     }
@@ -294,13 +301,13 @@ pub enum CommandType {
 /// Key = internal_key_size + internal_key + value_size
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Key {
-    internal_key_size: u64,
     key: String,
     sequence: i64,
     data_type: u8,
     value_size: u64
 }
 impl Key {
+    /// 初始化 Key 实例和 value 数据
     pub fn new(key: String, value: Option<String>) -> (Self,Option<ByteVec>) {
         let sequence = Local::now().timestamp_millis();
         let (data_type, value_size, value) =  match value {
@@ -309,15 +316,12 @@ impl Key {
                 (DataType::Set, value_byte.len(), Some(value_byte))
             },
             None => {
-                (DataType::Delete, 1, None)
+                (DataType::Delete, 0, None)
             },
         };
 
         let key_len = key.as_bytes().len();
-        let internal_key_size = key_len + SEQUENCE_SIZE  + DATA_TYPE_SIZE;
-        (Key {
-            internal_key_size: internal_key_size as u64,
-            key,
+        (Key { key,
             sequence,
             data_type: data_type as u8,
             value_size: value_size as u64,
@@ -325,7 +329,26 @@ impl Key {
          value)
 
     }
+
+    /// 从 Key实例中 获取用于排序的key。
+    pub fn get_sort_key(&self) -> String {
+        format!("{}-{}", self.key, self.sequence)
+    }
+
 }
+
+#[derive(Debug)]
+pub struct KV {
+    key: Key,
+    value: Option<String>,
+}
+impl KV {
+    pub fn new(key: Key,value: Option<String>) -> Self {
+        KV { key, value }
+    }
+}
+
+
 /// sst 数据类型
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum DataType {
@@ -390,10 +413,7 @@ mod test {
 
     #[test]
     fn test(){
-        let a = Key::new("a".to_string(),Some("aa".to_string()));
-        println!("{:?}",&a);
-        let a = bincode::serialize(&a).unwrap();
-        println!("{}",a.len());
+
     }
 
 }
