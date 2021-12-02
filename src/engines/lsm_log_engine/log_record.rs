@@ -408,7 +408,6 @@ impl KV {
     }
 }
 
-
 /// sst 数据类型
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum DataType {
