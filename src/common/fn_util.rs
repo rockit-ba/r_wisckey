@@ -9,12 +9,18 @@ use std::path::{PathBuf, Path};
 use std::fs::{OpenOptions, File, create_dir_all};
 use std::ffi::OsStr;
 use std::sync::atomic::{AtomicU64, Ordering};
+use crate::common::types::ByteVec;
 
 /// 根据字节序列获取 u32 checksum 值
 pub fn checksum(content: &[u8]) -> u32 {
     let mut hasher = Hasher::new();
     hasher.update(content);
     hasher.finalize()
+}
+
+/// check sum 校验
+pub fn checksum_verify(content: &[u8], old_checksum: u32) -> bool {
+    checksum(content) == old_checksum
 }
 
 /// 日志格式初始化
