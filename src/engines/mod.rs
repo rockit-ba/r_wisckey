@@ -30,11 +30,11 @@ pub trait KvsEngine  {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Scans(Range<String>);
-impl From<String> for Scans {
-    fn from(_range: String) -> Self {
-        let _range: Vec<String> =  _range.split('-').map(|ele| {
-            String::from(ele)
-        }).collect();
-        Scans { 0: (_range.get(0).unwrap().clone().._range.get(1).unwrap().clone()) }
-    }
-}
+// impl From<String> for Scans {
+//     fn from(_range: String) -> Self {
+//         let _range: Vec<String> =  _range.split('-').map(|ele| {
+//             String::from(ele)
+//         }).collect();
+//         Scans { 0: (_range.get(0).unwrap().clone().._range.get(1).unwrap().clone()) }
+//     }
+// }

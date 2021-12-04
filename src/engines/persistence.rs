@@ -87,7 +87,6 @@ pub fn flush(data_append: Arc<Mutex<BufWriter<File>>>,
 
     let mut writer = data_append.lock().unwrap();
     loop {
-        // 如果当前缓冲区中数据长度小于 write_buf_max_size，则只writer，不flush。
         if write_buf.len() < SERVER_CONFIG.write_buf_max_size {
             writer.write_all(write_buf.as_slice())?;
             writer.flush()?;

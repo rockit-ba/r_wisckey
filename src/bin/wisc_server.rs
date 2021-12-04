@@ -25,10 +25,10 @@ fn main() {
 
 fn run() -> Result<()>{
     let mut engine = LogEngine::open()?;
-    // 开启check_point
-    engine.check_point()?;
     // 注意，try_recovery 的调用一定是要在初始化之后
     engine.try_recovery()?;
+    // 开启check_point
+    engine.check_point()?;
 
     let mut server = Server::new(engine);
     let socket_addr = socket_addr_from_str(SERVER_CONFIG.server_addr.as_str())?;

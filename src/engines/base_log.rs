@@ -225,6 +225,7 @@ impl LogEngine {
                                     SERVER_CONFIG.log_file_extension.as_str(),
                                     SERVER_CONFIG.log_file_suffix.as_str())?;
 
+        info!("{:?}",&names);
         // 按照文件名顺序读取log 目录中所有的 .xlog 文件,
         for name in names {
             let file = OpenOptions::new().read(true)
@@ -236,10 +237,10 @@ impl LogEngine {
 
             let mut xlog_reader = BufReader::new(file);
             let mut command_str = String::new();
+            xlog_reader.read_to_string(&mut command_str)?;
             if command_str.is_empty() {
                 continue;
             }
-            xlog_reader.read_to_string(&mut command_str)?;
             let command_vec: Vec<String> = command_str.split(';').map(|ele| {
                 format!("{};",ele)
             }).collect();

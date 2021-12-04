@@ -1,12 +1,4 @@
 #V2
-get aa;
-get aa\n;
-get aa;
-get bb;
-get cc;
-get aa;
-delete aa;
-update aa bb;
 insert aa bb;
 get aa;
 get bb;
@@ -99,3 +91,11 @@ insert 米迦 终结的炽天使;
 insert 米迦2 终结的炽天使2;
 get 米迦2;
 insert 米迦3 终结的炽天使3;
+insert a bb;
+get a;
+insert a bb;
+get a;
+insert a bb;
+get a;
+insert a bb;
+insert c bb;
