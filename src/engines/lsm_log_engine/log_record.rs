@@ -14,7 +14,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::{DerefMut, Deref};
 use std::cmp::Ordering;
 
-/// block 大小：32KB
+/// block 大小：32 KB
 pub const BLOCK_SIZE:usize = 1024 * 32;
 /// checksum (4 bytes), _type(1 bytes), value_len(8 bytes)
 pub const RECORD_HEADER_SIZE:usize = 4 + 1 + 8;
@@ -320,7 +320,9 @@ pub enum RecordType {
     Last
 }
 
-/// 操作类型 可取：`Insert` `Update` `Delete`
+/// 操作类型 可取：`Insert` `Update` `Delete`，针对用户命令解析
+///
+/// 不同于DataType 中的 type。
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum CommandType {
     Insert,
@@ -411,6 +413,8 @@ impl Key {
 }
 
 /// sst 数据类型
+///
+/// 正对存储引擎本身，不同于 CommandType
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum DataType {
     Delete,
