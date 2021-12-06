@@ -385,19 +385,12 @@ impl Key {
     pub fn encode(&self) -> ByteVec {
         let mut buf = ByteVec::new();
 
-        let mut internal_key_size_byte = self.internal_key_size.to_le_bytes().to_vec();
-        let mut key_byte = self.key.as_bytes().to_vec();
-        let mut sequence_byte = self.sequence.to_le_bytes().to_vec();
-        let mut data_type_byte = self.data_type.to_le_bytes().to_vec();
-        let mut value_size_byte = self.value_size.to_le_bytes().to_vec();
-        let mut value_byte = self.value.as_bytes().to_vec();
-
-        buf.append(&mut internal_key_size_byte);
-        buf.append(&mut key_byte);
-        buf.append(&mut sequence_byte);
-        buf.append(&mut data_type_byte);
-        buf.append(&mut value_size_byte);
-        buf.append(&mut value_byte);
+        buf.append(&mut self.internal_key_size.to_le_bytes().to_vec());
+        buf.append(&mut self.key.as_bytes().to_vec());
+        buf.append(&mut self.sequence.to_le_bytes().to_vec());
+        buf.append(&mut self.data_type.to_le_bytes().to_vec());
+        buf.append(&mut self.value_size.to_le_bytes().to_vec());
+        buf.append(&mut self.value.as_bytes().to_vec());
 
         buf.clone()
     }
