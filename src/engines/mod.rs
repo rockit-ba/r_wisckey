@@ -10,7 +10,7 @@ use std::fs::File;
 use std::{env};
 use crate::config::SERVER_CONFIG;
 
-pub use lsm_log_engine::lsm_log::LsmLogEngine;
+pub use lsm_log_engine::lsm_log_engine::LsmLogEngine;
 pub mod lsm_log_engine;
 
 pub trait KvsEngine  {
