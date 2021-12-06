@@ -11,22 +11,20 @@ use crate::config::SERVER_CONFIG;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::path::PathBuf;
-use crate::engines::lsm_log_engine::log_record::{CommandType, LogRecordWrite, LogRecordRead};
+use crate::engines::lsm_log_engine::wal_log::{CommandType, LogRecordWrite, LogRecordRead};
 use crate::common::fn_util::init_file_writer;
+use crate::engines::lsm_log_engine::mem::MemTables;
 
 #[derive(Debug)]
 pub struct LsmLogEngine {
     // 首先接收用户的命令之后需要写 WAL日志，因此
-    wal_writer: Arc<LogRecordWrite>,
-    wal_reader: Arc<LogRecordRead>,
+    wal_writer: LogRecordWrite,
+    wal_reader: LogRecordRead,
     // 接着需要写入 MemTable,因为我们需要保持数据的有序性，
-    // 因此我们需要特定的数据结构，
-    // 注意我们需要两个 mem_table，一个负责写入，写满之后将变为不可变，等待minor compression
-    // bool :false 不可变，true :可变
-    mem_table: Arc<HashMap<bool,BTreeMap<String,String>>>,
+    mem_tables: MemTables,
     // mem_table 不可变之后将刷入 SSTable
-    sst_writer: Arc<BufWriter<File>>,
-    sst_write_name: Arc<AtomicU64>,
+    sst_writer: BufWriter<File>,
+    sst_write_name: AtomicU64,
 
 }
 impl LsmLogEngine {
@@ -35,9 +33,7 @@ impl LsmLogEngine {
         let wal_writer = LogRecordWrite::new()?;
         let wal_reader = LogRecordRead::new()?;
         // 初始化 mem_table
-        let mut mem_table_group = HashMap::with_capacity(2);
-        mem_table_group.insert(true,BTreeMap::<String,String>::new());
-        mem_table_group.insert(false,BTreeMap::<String,String>::new());
+        let mem_tables = MemTables::new();
 
         // 初始化 sst_writer，从level_0文件夹中查找，因为 minor compression 直接
         // 刷到level_0层级中的sst文件中
@@ -45,11 +41,11 @@ impl LsmLogEngine {
         let (sst_writer,sst_write_name) = level_0.init()?;
 
         Ok(LsmLogEngine {
-            wal_writer: Arc::new(wal_writer),
-            wal_reader: Arc::new(wal_reader),
-            mem_table: Arc::new(mem_table_group),
-            sst_writer: Arc::new(sst_writer),
-            sst_write_name: Arc::new(sst_write_name)
+            wal_writer,
+            wal_reader,
+            mem_tables,
+            sst_writer,
+            sst_write_name
         })
     }
 
