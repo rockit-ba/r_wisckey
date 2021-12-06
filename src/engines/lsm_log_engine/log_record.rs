@@ -1,24 +1,25 @@
 //! log_record 数据模型
 use serde_derive::{Serialize,Deserialize};
 use anyhow::Result;
-use crate::common::fn_util::{checksum, open_option_default, checksum_verify};
+use crate::common::fn_util::{checksum, open_option_default, checksum_verify, gen_sequence};
 use std::io::{BufWriter, Write, BufReader, Read};
 use std::fs::{File, create_dir_all, read_dir, OpenOptions};
 use log::{info, error};
 use crate::common::types::ByteVec;
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 use std::env;
 use crate::config::SERVER_CONFIG;
 use chrono::Local;
 use std::fmt::{Display, Formatter};
 use std::ops::{DerefMut, Deref};
 use std::cmp::Ordering;
+use std::path::{PathBuf, Path};
 
 /// block 大小：32 KB
 pub const BLOCK_SIZE:usize = 1024 * 32;
 /// checksum (4 bytes), _type(1 bytes), value_len(8 bytes)
 pub const RECORD_HEADER_SIZE:usize = 4 + 1 + 8;
-/// 日志文件达到预定大小（4MB）
+/// 日志文件达到预定大小（4MB），将转换为 sort table，并创建新的日志文件以供将来更新
 pub const LOG_FILE_MAX_SIZE:usize = 1024 * 1024 * 4;
 
 /// WAL日志写入的引用结构
@@ -32,15 +33,11 @@ pub struct LogRecordWrite {
     block_writer_rest_len: usize,
 }
 impl LogRecordWrite {
+
     /// 初始化 LogRecord 实体
     pub fn new() -> Result<Self> {
-        let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
-        create_dir_all(log_dir.clone())?;
-        
-        let file_name = format!("{}.{}", Local::now().timestamp_millis(), SERVER_CONFIG.log_file_extension);
-        let log_file = open_option_default(log_dir.join(file_name.as_str()))?;
         // 当前 log 文件的写句柄
-        let block_writer = BufWriter::with_capacity(BLOCK_SIZE,log_file);
+        let block_writer = gen_block_writer()?;
         Ok(LogRecordWrite {
             block_writer,
             last_record_type: RecordType::None,
@@ -51,11 +48,20 @@ impl LogRecordWrite {
     /// 往 log 中添加 record
     ///
     /// 调用该方法之前初始化 Key，这里只负责写入
-    pub fn add_records(&mut self, data: &Key) -> Result<()> {
+    ///
+    /// return : 是否切换了新的 log ；engine 需要此信息去更改 memtable
+    pub fn add_records(&mut self, data: &Key) -> Result<bool> {
+        let mut is_new_log = false;
+        // 当前log 文件大小校验,超过大小，创建新的log 文件写入
+        if self.block_writer.buffer().len() >= LOG_FILE_MAX_SIZE {
+            self.block_writer = gen_block_writer()?;
+            is_new_log = true;
+        }
+
         let mut data_byte = data.encode();
         info!("data:{:?}",data);
         self.add_process(&mut data_byte)?;
-        Ok(())
+        Ok(is_new_log)
     }
     /// 单独的处理流程。分离方便递归调用
     fn add_process(&mut self, data_byte: &mut ByteVec) -> Result<()> {
@@ -147,6 +153,17 @@ impl LogRecordWrite {
 
 }
 
+/// 获取一个新的log 文件写句柄
+fn gen_block_writer() -> Result<BufWriter<File>> {
+    let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
+    create_dir_all(log_dir.clone())?;
+
+    let file_name = format!("{}.{}", gen_sequence(), SERVER_CONFIG.log_file_extension);
+    let log_file = open_option_default(log_dir.join(file_name.as_str()))?;
+    // 当前 log 文件的写句柄
+    Ok(BufWriter::with_capacity(BLOCK_SIZE,log_file))
+}
+
 /// WAL日志读取的引用结构
 ///
 /// wal 文件始终只存在一个，服务器运行的过程中，
@@ -163,7 +180,7 @@ pub struct LogRecordRead {
     /// 已读长度
     have_read_len: u64,
     /// data 容器
-    recovery_data: HashMap<String, Key>,
+    recovery_data: BTreeMap<String, Key>,
 }
 impl LogRecordRead {
     pub fn new() -> Result<Self> {
@@ -183,7 +200,7 @@ impl LogRecordRead {
             block_reader,
             value_byte: ByteVec::new(),
             have_read_len: 0,
-            recovery_data: HashMap::new()
+            recovery_data: BTreeMap::new()
         })
     }
 
@@ -204,7 +221,7 @@ impl LogRecordRead {
 /// 处理一个block的数据
 fn read_block_process(block_reader: &mut BufReader<File>,
                       have_read_len: &mut u64,
-                      recovery_data: &mut HashMap<String, Key>,
+                      recovery_data: &mut BTreeMap<String, Key>,
                       value_byte: &mut ByteVec) -> Result<()>
 {
     let mut buffer = [0; BLOCK_SIZE];
@@ -213,12 +230,12 @@ fn read_block_process(block_reader: &mut BufReader<File>,
     info!("############### 读取block ###############");
     let mut buffer = ByteVec::from(buffer);
 
-    return read_record_process(&mut buffer, recovery_data, value_byte);
+    read_record_process(&mut buffer, recovery_data, value_byte)
 }
 
 /// 处理一条record
 fn read_record_process(buffer: &mut ByteVec,
-                       recovery_data: &mut HashMap<String, Key>,
+                       recovery_data: &mut BTreeMap<String, Key>,
                        value_byte: &mut ByteVec) -> Result<()>
 {
     if buffer.len() < RECORD_HEADER_SIZE {
@@ -343,8 +360,10 @@ pub struct Key {
     value: String,
 }
 impl Key {
-    pub fn new(key: String, value: String, data_type: DataType) -> Self{
-        let sequence = Local::now().timestamp_millis(); // 8
+    pub fn new(key: String,
+               value: String,
+               data_type: DataType) -> Self{
+        let sequence = gen_sequence(); // 8
         let data_type = data_type as u8; // 1
         let value_size = value.as_bytes().len() as u64; // 8
         let internal_key_size = key.as_bytes().len() as u64 + 9_u64;
@@ -425,8 +444,9 @@ pub enum DataType {
 mod test {
     use super::*;
     use std::io::{Read, BufReader};
-    use crate::common::fn_util::log_init;
+    use crate::common::fn_util::{log_init, SEQUENCE};
     use serde::Deserialize;
+    use std::convert::{TryFrom, TryInto};
 
     #[test]
     fn add_records_01_test() -> Result<()> {
@@ -464,14 +484,16 @@ mod test {
     fn add_records_03_test() -> Result<()> {
         log_init();
         let mut log_record = LogRecordWrite::new()?;
-        let key_test = Key::new("b".to_string(), "bb".to_string(), DataType::Set);
-        log_record.add_records(&key_test)?;
-
-        let key_test = Key::new("d".to_string(), "dd".to_string(), DataType::Set);
-        log_record.add_records(&key_test)?;
-
-        let key_test = Key::new("e".to_string(), "ee".to_string(), DataType::Set);
-        log_record.add_records(&key_test)?;
+        let data = vec![
+            ("a".to_string(),"bb".to_string()),("a".to_string(),"bb".to_string()),
+            ("a".to_string(),"bb".to_string()),("b".to_string(),"bb".to_string()),
+            ("c".to_string(),"cc".to_string()),("d".to_string(),"dd".to_string()),
+            ("e".to_string(),"ee".to_string()),("f".to_string(),"ff".to_string()),
+        ];
+        data.iter().for_each(|(key, value)| {
+            let key_test = Key::new(key.clone(), value.clone(), DataType::Set);
+            log_record.add_records(&key_test).unwrap();
+        });
         Ok(())
     }
 
@@ -485,17 +507,9 @@ mod test {
         Ok(())
     }
 
-
-
     #[test]
     fn test() {
-        let key = "a".to_string(); // 1
-        let value = "aa".to_string(); // 2
-        let key = Key::new(key, value, DataType::Set);
-        println!("{:?}",&key);
-        let mut encode = key.encode();
-        let decode = Key::decode(&mut encode).unwrap();
-        println!("{:?}",decode);
+
 
     }
 }
