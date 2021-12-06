@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use crate::KvsEngine;
-use crate::engines::{Scans, init_wal, write_ahead_log};
+use crate::engines::{Scans, write_ahead_log};
 use std::sync::{Arc, Mutex};
 use std::io::BufWriter;
 use std::fs::{File};
@@ -11,14 +11,14 @@ use crate::config::SERVER_CONFIG;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::path::PathBuf;
-use crate::engines::lsm_log_engine::log_record::CommandType;
+use crate::engines::lsm_log_engine::log_record::{CommandType, LogRecordWrite, LogRecordRead};
 use crate::common::fn_util::init_file_writer;
 
 #[derive(Debug)]
 pub struct LsmLogEngine {
     // 首先接收用户的命令之后需要写 WAL日志，因此
-    wal_writer: Arc<Mutex<BufWriter<File>>>,
-    wal_write_name: Arc<AtomicU64>,
+    wal_writer: Arc<LogRecordWrite>,
+    wal_reader: Arc<LogRecordRead>,
     // 接着需要写入 MemTable,因为我们需要保持数据的有序性，
     // 因此我们需要特定的数据结构，
     // 注意我们需要两个 mem_table，一个负责写入，写满之后将变为不可变，等待minor compression
@@ -32,7 +32,8 @@ pub struct LsmLogEngine {
 impl LsmLogEngine {
     pub fn open() -> Result<Self> {
         // 初始化 wal_writer
-        let (wal_writer,wal_write_name) = init_wal()?;
+        let wal_writer = LogRecordWrite::new()?;
+        let wal_reader = LogRecordRead::new()?;
         // 初始化 mem_table
         let mut mem_table_group = HashMap::with_capacity(2);
         mem_table_group.insert(true,BTreeMap::<String,String>::new());
@@ -44,8 +45,8 @@ impl LsmLogEngine {
         let (sst_writer,sst_write_name) = level_0.init()?;
 
         Ok(LsmLogEngine {
-            wal_writer: Arc::new(Mutex::new(wal_writer)),
-            wal_write_name: Arc::new(wal_write_name),
+            wal_writer: Arc::new(wal_writer),
+            wal_reader: Arc::new(wal_reader),
             mem_table: Arc::new(mem_table_group),
             sst_writer: Arc::new(sst_writer),
             sst_write_name: Arc::new(sst_write_name)
@@ -57,13 +58,6 @@ impl KvsEngine for LsmLogEngine {
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
 
         // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
-        if let Err(err) = write_ahead_log(self.wal_writer.clone(),
-                                          &self.wal_write_name,
-                                          &CommandType::Delete,
-                                          key,
-                                          Some(value)) {
-            return Err(err);
-        }
 
         Ok(())
     }

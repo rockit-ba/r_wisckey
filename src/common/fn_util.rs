@@ -8,8 +8,9 @@ use crate::common::error_enum::WiscError;
 use std::path::{PathBuf, Path};
 use std::fs::{OpenOptions, File, create_dir_all};
 use std::ffi::OsStr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering, AtomicI64};
 use crate::common::types::ByteVec;
+use chrono::Local;
 
 /// 根据字节序列获取 u32 checksum 值
 pub fn checksum(content: &[u8]) -> u32 {
@@ -153,4 +154,12 @@ pub fn init_file_writer(path: PathBuf,
         }
     }
     Ok((file_writer, file_write_name))
+}
+
+/// 全局自增元素
+pub static SEQUENCE:AtomicI64 = AtomicI64::new(0);
+
+/// 获取全局增长 `i64` 序列
+pub fn gen_sequence() -> i64 {
+    Local::now().timestamp_millis() + SEQUENCE.fetch_add(1, Ordering::SeqCst)
 }

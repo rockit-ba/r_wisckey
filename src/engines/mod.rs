@@ -34,25 +34,6 @@ pub trait KvsEngine  {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Scans(Range<String>);
-// impl From<String> for Scans {
-//     fn from(_range: String) -> Self {
-//         let _range: Vec<String> =  _range.split('-').map(|ele| {
-//             String::from(ele)
-//         }).collect();
-//         Scans { 0: (_range.get(0).unwrap().clone().._range.get(1).unwrap().clone()) }
-//     }
-// }
-
-pub fn init_wal() -> Result<(BufWriter<File>, AtomicU64)>{
-    // 初始化 wal_writer
-    let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
-    let (wal_writer,wal_write_name) = init_file_writer(log_dir,
-                     SERVER_CONFIG.log_file_extension.as_str(),
-                     SERVER_CONFIG.log_file_suffix.as_str(),
-                     SERVER_CONFIG.log_file_max_size)?;
-
-    Ok((wal_writer,wal_write_name))
-}
 
 
 /// 写 WAL 日志。
