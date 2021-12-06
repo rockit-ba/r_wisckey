@@ -11,7 +11,7 @@ use crate::config::SERVER_CONFIG;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::path::PathBuf;
-use crate::engines::lsm_log_engine::log_record::{CommandType, LogRecordWrite, LogRecordRead};
+use crate::engines::lsm_log_engine::wal_log::{CommandType, LogRecordWrite, LogRecordRead};
 use crate::common::fn_util::init_file_writer;
 
 #[derive(Debug)]

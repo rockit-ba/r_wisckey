@@ -1,2 +1,2 @@
 pub mod lsm_log;
-pub mod log_record;
+pub mod wal_log;

@@ -3,7 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::io::{BufWriter, Write};
 use std::sync::atomic::{Ordering, AtomicU64};
 use crate::common::fn_util::{open_option_default, get_file_path, init_file_writer};
-use lsm_log_engine::log_record::CommandType;
+use lsm_log_engine::wal_log::CommandType;
 use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use std::fs::File;
