@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use crate::engines::lsm_log_engine::wal_log::{ LogRecordWrite, LogRecordRead, Key, DataType};
 use crate::common::fn_util::init_file_writer;
 use crate::engines::lsm_log_engine::mem::MemTables;
+use crossbeam_skiplist::SkipMap;
+use std::sync::Arc;
 
 
 pub const MINOR_THREAD:&str = "minor-thread";
@@ -61,7 +63,7 @@ impl KvsEngine for LsmLogEngine {
             // 调换 两个table的状态
             self.mem_tables.exchange();
             // 当前的memtable就需要flush
-            minor_compact()?;
+            minor_compact(self.mem_tables.imu_table().unwrap().table.clone())?;
         }
         // 将数据写入内存表
         self.mem_tables.add_record(&internal_key);
@@ -86,12 +88,12 @@ impl KvsEngine for LsmLogEngine {
 
 
 /// 将当前的 memtable flush到 level-0
-pub fn minor_compact() -> Result<()> {
+pub fn minor_compact(imu_table: Arc<SkipMap<String,Key>>) -> Result<()> {
     thread::Builder::new()
         .name(MINOR_THREAD.to_string())
         .spawn(move || -> Result<()> {
             // TODO
-
+            imu_table.clear();
             Ok(())
         })?;
     Ok(())
