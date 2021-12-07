@@ -2,18 +2,19 @@
 
 use anyhow::Result;
 use crate::KvsEngine;
-use crate::engines::{Scans, write_ahead_log};
-use std::sync::{Arc, Mutex};
+use crate::engines::{Scans};
 use std::io::BufWriter;
 use std::fs::{File};
 use std::sync::atomic::{AtomicU64};
 use crate::config::SERVER_CONFIG;
-use std::collections::{BTreeMap, HashMap};
-use std::env;
+use std::{env, thread};
 use std::path::PathBuf;
-use crate::engines::lsm_log_engine::wal_log::{CommandType, LogRecordWrite, LogRecordRead, Key, DataType};
+use crate::engines::lsm_log_engine::wal_log::{ LogRecordWrite, LogRecordRead, Key, DataType};
 use crate::common::fn_util::init_file_writer;
 use crate::engines::lsm_log_engine::mem::MemTables;
+
+
+pub const MINOR_THREAD:&str = "minor-thread";
 
 #[derive(Debug)]
 pub struct LsmLogEngine {
@@ -60,25 +61,40 @@ impl KvsEngine for LsmLogEngine {
             // 调换 两个table的状态
             self.mem_tables.exchange();
             // 当前的memtable就需要flush
-            self.mem_tables.minor_compact();
-
+            minor_compact()?;
         }
         // 将数据写入内存表
         self.mem_tables.add_record(&internal_key);
         Ok(())
     }
 
-    fn get(&self, key: &str) -> Result<Option<String>> {
+    #[warn(unused_variables)]
+    fn get(&self, _key: &str) -> Result<Option<String>> {
         todo!()
     }
 
-    fn scan(&self, range: Scans) -> Result<Option<Vec<String>>> {
+    #[warn(unused_variables)]
+    fn scan(&self, _range: Scans) -> Result<Option<Vec<String>>> {
         todo!()
     }
 
-    fn remove(&mut self, key: &str) -> Result<()> {
+    #[warn(unused_variables)]
+    fn remove(&mut self, _key: &str) -> Result<()> {
         todo!()
     }
+}
+
+
+/// 将当前的 memtable flush到 level-0
+pub fn minor_compact() -> Result<()> {
+    thread::Builder::new()
+        .name(MINOR_THREAD.to_string())
+        .spawn(move || -> Result<()> {
+            // TODO
+
+            Ok(())
+        })?;
+    Ok(())
 }
 
 /// LevelDir抽象

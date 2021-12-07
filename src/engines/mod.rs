@@ -2,7 +2,7 @@ use std::ops::Range;
 use serde_derive::{Deserialize, Serialize};
 use std::io::{BufWriter, Write};
 use std::sync::atomic::{Ordering, AtomicU64};
-use crate::common::fn_util::{open_option_default, get_file_path, init_file_writer};
+use crate::common::fn_util::{open_option_default, get_file_path};
 use lsm_log_engine::wal_log::CommandType;
 use std::sync::{Arc, Mutex};
 use anyhow::Result;
@@ -10,7 +10,7 @@ use std::fs::File;
 use std::{env};
 use crate::config::SERVER_CONFIG;
 
-pub use lsm_log_engine::lsm_log_engine::LsmLogEngine;
+pub use lsm_log_engine::lsm_engine::LsmLogEngine;
 pub mod lsm_log_engine;
 
 pub trait KvsEngine  {
@@ -53,6 +53,7 @@ pub struct Scans(Range<String>);
 /// 我们的data_file 也是append 写入的。但是别忘了，我们将要在不就的将来实现 LSM 模型存储，在
 /// LSM 模型的data_file（SSTable） 中,数据将不会按照用户的写入顺序单条append 写入，因此WAL
 /// 的存在必不可少。
+#[allow(unused)]
 pub fn write_ahead_log(wal_writer: Arc<Mutex<BufWriter<File>>>,
                        wal_write_name: &AtomicU64,
                        command_type: &CommandType,
