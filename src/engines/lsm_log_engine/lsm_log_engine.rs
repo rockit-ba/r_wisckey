@@ -11,7 +11,7 @@ use crate::config::SERVER_CONFIG;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::path::PathBuf;
-use crate::engines::lsm_log_engine::wal_log::{CommandType, LogRecordWrite, LogRecordRead};
+use crate::engines::lsm_log_engine::wal_log::{CommandType, LogRecordWrite, LogRecordRead, Key, DataType};
 use crate::common::fn_util::init_file_writer;
 use crate::engines::lsm_log_engine::mem::MemTables;
 
@@ -45,16 +45,26 @@ impl LsmLogEngine {
             wal_reader,
             mem_tables,
             sst_writer,
-            sst_write_name
-        })
+            sst_write_name }
+        )
     }
 
 }
 impl KvsEngine for LsmLogEngine {
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
-
+        let internal_key = Key::new(key.to_string(),value.to_string(),DataType::Set);
         // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
+        let is_new_log = self.wal_writer.add_records(&internal_key)?;
+        if is_new_log {
+            // 如果为true ，表示当前的key已经被添加到 新的log文件中了，需要调换table
+            // 调换 两个table的状态
+            self.mem_tables.exchange();
+            // 当前的memtable就需要flush
+            self.mem_tables.minor_compact();
 
+        }
+        // 将数据写入内存表
+        self.mem_tables.add_record(&internal_key);
         Ok(())
     }
 
