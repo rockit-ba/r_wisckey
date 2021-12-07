@@ -9,7 +9,6 @@ use std::path::{PathBuf, Path};
 use std::fs::{OpenOptions, File, create_dir_all};
 use std::ffi::OsStr;
 use std::sync::atomic::{AtomicU64, Ordering, AtomicI64};
-use crate::common::types::ByteVec;
 use chrono::Local;
 
 /// 根据字节序列获取 u32 checksum 值

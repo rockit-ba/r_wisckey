@@ -6,14 +6,10 @@ use std::io::{BufWriter, Write, BufReader, Read};
 use std::fs::{File, create_dir_all, read_dir, OpenOptions};
 use log::{info, error};
 use crate::common::types::ByteVec;
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{BTreeMap};
 use std::env;
 use crate::config::SERVER_CONFIG;
-use chrono::Local;
-use std::fmt::{Display, Formatter};
-use std::ops::{DerefMut, Deref};
 use std::cmp::Ordering;
-use std::path::{PathBuf, Path};
 
 /// block 大小：32 KB
 pub const BLOCK_SIZE:usize = 1024 * 32;
@@ -205,6 +201,7 @@ impl LogRecordRead {
     }
 
     /// 读取整个log 文件
+    #[allow(unused)]
     pub fn read_log(&mut self) -> Result<()> {
         if let Some(reader) = self.block_reader.as_mut() {
             while self.have_read_len < reader.get_ref().metadata()?.len() {

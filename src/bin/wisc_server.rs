@@ -24,7 +24,7 @@ fn main() {
 }
 
 fn run() -> Result<()>{
-    let mut engine = LsmLogEngine::open()?;
+    let engine = LsmLogEngine::open()?;
 
     let mut server = Server::new(engine);
     let socket_addr = socket_addr_from_str(SERVER_CONFIG.server_addr.as_str())?;
