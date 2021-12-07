@@ -52,22 +52,15 @@ impl LsmLogEngine {
 }
 impl KvsEngine for LsmLogEngine {
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
-        // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
         let internal_key = Key::new(key.to_string(),value.to_string(),DataType::Set);
+        // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
         let is_new_log = self.wal_writer.add_records(&internal_key)?;
         if is_new_log {
-            // 如果为true ，表示当前的key已经被添加到 新的log文件中了，
-            // 1 因此首先需要将当前的 memtable 变为 不可变
-            self.mem_tables.mut_table().mark_imu();
-            // 如果 当前imu_table 的长度不为0，表示刷盘动作为完成，阻塞用户的当前操作，
-            // 直到 imu_table 的长度为0
-            loop {
-                if self.mem_tables.imu_table().len() == 0 {
-                    break;
-                }
-            }
-            // 如果当前的imu_table flush 完毕，将其标记为可变 TODO (这一步可放在flush之后)
-            self.mem_tables.imu_table().mark_mut();
+            // 如果为true ，表示当前的key已经被添加到 新的log文件中了，需要调换table
+            // 首先需要flush 当前的 memtable
+            self.mem_tables.minor_compact();
+            // 然后调换 两个table的状态
+            self.mem_tables.exchange();
         }
         // 将数据写入内存表
         self.mem_tables.add_record(&internal_key);

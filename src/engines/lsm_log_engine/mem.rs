@@ -58,6 +58,30 @@ impl MemTables {
         self.mut_table().table
             .insert(key.get_sort_key(),key.clone());
     }
+
+    /// 调换两个table的状态
+    ///
+    /// 可能会阻塞
+    pub fn exchange(&mut self) {
+        // 需要将当前的 memtable 变为 不可变
+        self.mut_table().mark_imu();
+        // 如果 当前imu_table 的长度不为0，表示刷盘动作为完成，阻塞用户的当前操作，
+        // 直到 imu_table 的长度为0
+        loop {
+            if self.imu_table().len() == 0 { break; }
+        }
+    }
+
+    /// 将当前的 memtable flush到 level-0
+    ///
+    /// todo
+    pub fn minor_compact(&mut self) {
+        // flush
+        self.imu_table();
+
+        // 修改当前的imu_table状态
+        self.imu_table().mark_mut();
+    }
 }
 
 
