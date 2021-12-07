@@ -57,10 +57,11 @@ impl KvsEngine for LsmLogEngine {
         let is_new_log = self.wal_writer.add_records(&internal_key)?;
         if is_new_log {
             // 如果为true ，表示当前的key已经被添加到 新的log文件中了，需要调换table
-            // 首先需要flush 当前的 memtable
-            self.mem_tables.minor_compact();
-            // 然后调换 两个table的状态
+            // 调换 两个table的状态
             self.mem_tables.exchange();
+            // 当前的memtable就需要flush
+            self.mem_tables.minor_compact();
+
         }
         // 将数据写入内存表
         self.mem_tables.add_record(&internal_key);
