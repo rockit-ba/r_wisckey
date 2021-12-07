@@ -433,10 +433,8 @@ pub enum DataType {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::io::{Read, BufReader};
-    use crate::common::fn_util::{log_init, SEQUENCE};
-    use serde::Deserialize;
-    use std::convert::{TryFrom, TryInto};
+    use std::io::{Read};
+    use crate::common::fn_util::{log_init};
 
     #[test]
     fn add_records_01_test() -> Result<()> {
@@ -444,7 +442,7 @@ mod test {
         // 垮block 数据 测试
         let mut log_record = LogRecordWrite::new()?;
         let mut str = String::new();
-        File::open("a.txt")?.read_to_string(&mut str);
+        let _ = File::open("a.txt")?.read_to_string(&mut str);
         let key_test = Key::new("a".to_string(), str, DataType::Set);
         log_record.add_records(&key_test)?;
         Ok(())
@@ -459,7 +457,7 @@ mod test {
         log_record.add_records(&key_test)?;
 
         let mut str = String::new();
-        File::open("a.txt")?.read_to_string(&mut str);
+        let _ = File::open("a.txt")?.read_to_string(&mut str);
         let key_test = Key::new("a".to_string(), str, DataType::Set);
         log_record.add_records(&key_test)?;
 

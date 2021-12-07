@@ -1,12 +1,12 @@
 //! 内存表等
 
-use std::collections::BTreeMap;
 use crate::engines::lsm_log_engine::wal_log::Key;
+use crossbeam_skiplist::SkipMap;
 
 /// 单个内存表的结构体表示
 #[derive(Debug)]
 pub struct MemTable {
-    pub table: BTreeMap<String,Key>,
+    pub table: SkipMap<String,Key>,
     /// 是否可变
     pub status: MemTableStatus,
     num: u8,
