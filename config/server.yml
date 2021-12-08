@@ -1,34 +1,14 @@
+# wisc_server 默认的启动地址
+server_addr: 127.0.0.1:7777
+# 命令行历史存放文件
+command_history: history.txt
+
 # 存放数据文件的基础目录
 data_dir: data
 # 数据文件的后缀名
 data_file_suffix: .wisc
 # 数据文件的扩展名
 data_file_extension: wisc
-# 数据文件最大容量，超出则创建新文件写入数据,单位 字节
-# 注意，此值并不是完全精确匹配，目的在于将数据在时间序上分散在多个文件中
-# 默认 1024 * 1024 = 1048576
-file_max_size: 1048576
-
-# 压缩阈值：此处的数字统计 已进行的 update/delete 操作次数
-# 也就是说，当记录的该类操作次数超过该阈值之后将触发压缩动作
-# 需要理解的一点是：当用户执行了以下操作：
-# insert (a,1) -> delete (a) -> insert (a,2) -> update (a,3);
-# 此时数据文件需要删除的数据实际上是有 3 条，我们只需要保留 (a,3)，但是根据我们对 update/delete
-# 操作次数进行统计就会得出 2条 。这里简单地选择忽略这种误差，现实情况中也较少这种对同一个key 反复进行insert delete。
-compress_threshold: 3
-# 压缩线程执行的频率，单位：秒。
-compress_interval: 30
-
-# wisc_server 默认的启动地址
-server_addr: 127.0.0.1:7777
-
-# 命令行历史存放文件
-command_history: history.txt
-
-# 达到该阈值之后将刷磁盘，单位 byte；
-# 对于判断是否刷盘来说，它依然是个非准确值，但对于刷盘的数据量来说，它将是准确的
-# 也就是说我们一次会往磁盘刷 write_buf_max_size byte的数据。因为我们需要保证刷盘的原子性。
-write_buf_max_size: 200
 
 # wal 日志存储目录
 wal_dir: log
@@ -36,10 +16,7 @@ wal_dir: log
 log_file_suffix: .xlog
 # 数据文件的扩展名
 log_file_extension: xlog
-log_file_max_size: 1024
 
-# 执行check_point 的时间间隔，单位：秒
-check_point_interval: 30
 #########LSM############
 # lsm 所有层级目录,共7 层
 level_dirs:
@@ -50,12 +27,5 @@ level_dirs:
   - 4
   - 5
   - 6
-
-# 第0 层的总sst 文件大小的阈值，1024，单位byte
-level_0_max_size: 1024
-# 层级总容量扩充因子，
-# 也就是第一层的总容量大小是 ：level_0_max_size * 10，
-# 第二层的总容量大小是 ：level_0_max_size * 10 * 10，依次类推
-level_expansion_factor: 10
 
 

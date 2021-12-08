@@ -22,36 +22,23 @@ lazy_static! {
 /// 字段含义查看 config/server.yml 文件
 #[derive(Debug,Deserialize)]
 pub struct ServerConfig {
+    /// wisc_server 默认的启动地址
+    pub server_addr: String,
+    /// 命令行历史存放文件
+    pub command_history: String,
     /// 存放数据文件的基础目录
     pub data_dir: String,
     /// 数据文件的后缀名
     pub data_file_suffix: String,
     /// 数据文件的扩展名
     pub data_file_extension: String,
-    /// 数据文件最大容量
-    pub file_max_size: u64,
-    /// 压缩阈值
-    pub compress_threshold: usize,
-    /// 压缩线程执行的频率，单位：秒。
-    pub compress_interval: u64,
-    /// wisc_server 默认的启动地址
-    pub server_addr: String,
-    /// 命令行历史存放文件
-    pub command_history: String,
-    /// write_buf_max_size
-    pub write_buf_max_size: usize,
     /// wal 日志存储目录
     pub wal_dir: String,
     pub log_file_suffix: String,
     pub log_file_extension: String,
-    pub log_file_max_size: usize,
-    /// 执行check_point 的时间间隔，单位：秒
-    pub check_point_interval: usize,
     // LSM 配置
 
     pub level_dirs: Vec<u8>,
-    pub level_0_max_size: usize,
-    pub level_expansion_factor: usize,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {
