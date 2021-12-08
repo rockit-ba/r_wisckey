@@ -25,4 +25,5 @@ crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam.git", br
 chrono = "0.4.19"
 rayon = "1.5.1"
 num_cpus = "1.13.0"
+futures = "0.3.18"
 #uuid = { version = "~0.8.2", features = ["v4"] }
