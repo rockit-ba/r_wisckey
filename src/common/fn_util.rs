@@ -1,14 +1,14 @@
 use crc32fast::Hasher;
 use log::LevelFilter;
-use std::io::{Write, BufWriter};
+use std::io::{Write};
 use std::{io, fs};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use anyhow::Result;
 use crate::common::error_enum::WiscError;
 use std::path::{PathBuf, Path};
-use std::fs::{OpenOptions, File, create_dir_all};
+use std::fs::{OpenOptions, File};
 use std::ffi::OsStr;
-use std::sync::atomic::{AtomicU64, Ordering, AtomicI64};
+use std::sync::atomic::{ Ordering, AtomicI64};
 use chrono::Local;
 
 /// 根据字节序列获取 u32 checksum 值
@@ -111,48 +111,8 @@ pub fn sorted_gen_list(path: &Path,file_extension: &str, file_suffix:&str) -> Re
 }
 
 /// 根据数据目录和文件编号获取指定的文件地址
-pub fn get_file_path(dir: &Path, gen: u64, file_suffix: &str) -> PathBuf {
+pub fn get_file_path(dir: &Path, gen: i64, file_suffix: &str) -> PathBuf {
     dir.join(format!("{}{}", gen, file_suffix))
-}
-
-/// 根据指定目录获取当前的 file writer
-pub fn init_file_writer(path: PathBuf,
-            extension: &str,
-            suffix: &str,
-            file_max_size: usize) -> Result<(BufWriter<File>,AtomicU64)>
-{
-    create_dir_all(path.clone())?;
-    let file_names = sorted_gen_list(path.as_path(),
-                                     extension,
-                                     suffix)?;
-    let file_writer;
-    let file_write_name;
-    if file_names.is_empty() {
-        file_write_name = AtomicU64::new(0);
-        file_writer = BufWriter::new(
-            open_option_default(get_file_path(path.as_path(),
-                                              file_write_name.load(Ordering::SeqCst),
-                                              suffix))?
-        );
-
-    }else {
-        file_write_name = AtomicU64::new(*file_names.last().unwrap());
-        let last_file = open_option_default(get_file_path(path.as_path(),
-                                                          file_write_name.load(Ordering::SeqCst),
-                                                          suffix))?;
-        if last_file.metadata()?.len() >= file_max_size as u64 {
-            file_write_name.fetch_add(1, Ordering::SeqCst);
-            file_writer = BufWriter::new(
-                open_option_default(get_file_path(path.as_path(),
-                                                  file_write_name.load(Ordering::SeqCst),
-                                                  suffix))?
-            );
-
-        }else {
-            file_writer = BufWriter::new(last_file);
-        }
-    }
-    Ok((file_writer, file_write_name))
 }
 
 /// 全局自增元素

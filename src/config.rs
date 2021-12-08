@@ -39,8 +39,6 @@ pub struct ServerConfig {
     // LSM 配置
 
     pub level_dirs: Vec<u8>,
-    pub level_0_max_size: usize,
-    pub level_expansion_factor: usize,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {

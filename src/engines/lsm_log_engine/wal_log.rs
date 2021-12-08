@@ -435,6 +435,7 @@ mod test {
     use super::*;
     use std::io::{Read};
     use crate::common::fn_util::{log_init};
+    use std::path::Path;
 
     #[test]
     fn add_records_01_test() -> Result<()> {
@@ -497,7 +498,9 @@ mod test {
 
     #[test]
     fn test() {
-
-
+        let a = Path::new("log");
+        let b = read_dir(a).unwrap().last();
+        println!("{:?}",b.unwrap().unwrap().file_name());
+        println!("{}",read_dir(a).unwrap().count());
     }
 }

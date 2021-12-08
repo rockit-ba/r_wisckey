@@ -28,11 +28,4 @@ level_dirs:
   - 5
   - 6
 
-# 第0 层的总sst 文件大小的阈值，1024，单位byte
-level_0_max_size: 1024
-# 层级总容量扩充因子，
-# 也就是第一层的总容量大小是 ：level_0_max_size * 10，
-# 第二层的总容量大小是 ：level_0_max_size * 10 * 10，依次类推
-level_expansion_factor: 10
-
 
