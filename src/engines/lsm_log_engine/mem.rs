@@ -1,5 +1,7 @@
 //! 内存表等
 
+#![allow(dead_code)]
+
 use crate::engines::lsm_log_engine::wal_log::Key;
 use crossbeam_skiplist::SkipMap;
 use std::sync::Arc;
