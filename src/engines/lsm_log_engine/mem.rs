@@ -2,9 +2,10 @@
 
 #![allow(dead_code)]
 
-use crate::engines::lsm_log_engine::wal_log::Key;
 use crossbeam_skiplist::SkipMap;
 use std::sync::Arc;
+
+use crate::engines::lsm_log_engine::wal_log::Key;
 
 /// 单个内存表的结构体表示
 #[derive(Debug)]
