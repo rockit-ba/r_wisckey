@@ -6,7 +6,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::env;
 use std::io::BufWriter;
-use std::fs::{File, read_dir, OpenOptions};
+use std::fs::{File, read_dir, OpenOptions, create_dir_all};
 
 use crate::config::SERVER_CONFIG;
 use crate::common::fn_util::{open_option_default, get_file_path, gen_sequence};
@@ -33,13 +33,15 @@ impl LevelDir {
     /// 将 `LevelDir` 装换为 `PathBuf`
     pub fn to_path(&self) -> Result<PathBuf> {
         let data_dir = env::current_dir()?.join(&SERVER_CONFIG.data_dir);
-        Ok(data_dir.join(format!("{}{}",self.0, self.1)))
+        let level_dir = data_dir.join(format!("{}{}",self.0, self.1));
+        create_dir_all(&level_dir)?;
+        Ok(level_dir)
     }
 
     /// 初始化 创建并返回当前 `LevelDir` 的 writer
     pub fn init_level_0_writer(&self) -> Result<BufWriter<File>> {
         let path = self.to_path()?;
-        let read_dir_count = read_dir(&path).unwrap();
+        let read_dir_count = read_dir(&path)?;
 
         let file_count = read_dir_count.count();
         let new_file = || {
@@ -82,4 +84,14 @@ impl LevelDir {
 
     }
 
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test() {
+        let level = LevelDir::new(0);
+        level.to_path().unwrap();
+    }
 }

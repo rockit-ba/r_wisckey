@@ -96,23 +96,24 @@ impl MemTables {
     ///
     /// 可能会阻塞
     pub fn exchange(&mut self) {
-        // 需要将当前的 memtable 变为 不可变,等待 minor;
-        // 然后将原来的不可变变为可变
-        // 写入之前要判断
-        // 如果 当前imu_table 的长度不为0，表示刷盘动作为完成，阻塞用户的当前操作，
+        // 需要将当前的 mut_table 变为 imu,等待 minor;
+        // 然后将原来的 imu_table 变为 mut_table,接收新的写入
+        // 交换之前要判断
+        // 如果 当前 imu_table 的长度不为0，表示上次满了之后，刷盘动作为完成，阻塞用户的当前操作，
         // 直到 imu_table 的长度为0
         loop {
-            // 如果当前 imu_table 没有flush完成，mut_table 又满了，那么这时交换是需要阻塞的，
+            // 如果当前 imu_table 没有flush完成，
+            // 此时的 mut_table 又是满的（必定是满的，因为log切换了新文件才会执行 exchange），
+            // 那么这时交换是需要阻塞的，
             // 等imu_table flush 结束之后才会交换状态
             if let Some(imu_table) = self.imu_table() {
-                if imu_table.table.is_empty() {
-                    break;
-                }
+                if imu_table.table.is_empty() { break; }
             }
         }
         // 中间状态只会存在于这段代码中，
-        // 因此 一下的状态的table都必定有值的
-        self.mut_table().unwrap().mark_temp();
+        // 因此 接下来的状态的table都必定有值的
+        self.mut_table().unwrap().mark_temp();  // 临时状态
+        // 上面的阻塞确保了 imu_table-》转换的 mut_table 是可以接受新数据的
         self.imu_table().unwrap().mark_mut();
         self.temp_table().unwrap().mark_imu();
     }
