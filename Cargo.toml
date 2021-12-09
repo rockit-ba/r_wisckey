@@ -1,7 +1,7 @@
 [package]
 name = "r_wisckey"
 version = "0.4.0"
-edition = "2018"
+edition = "2021"
 authors = ["潘吉祥","1121153008@qq.com"]
 description = "基于wisckey 论文的LSM存储引擎"
 
@@ -23,6 +23,7 @@ rustyline-derive = "0.5.0"
 crossbeam = "0.8.0"
 crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam.git", branch = "master" }
 chrono = "0.4.19"
-#rayon = "1.5.1"
-#num_cpus = "1.13.0"
+rayon = "1.5.1"
+num_cpus = "1.13.0"
+futures = "0.3.18"
 #uuid = { version = "~0.8.2", features = ["v4"] }
