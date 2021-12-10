@@ -3,11 +3,12 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
-use std::io::BufWriter;
-use std::fs::{File};
+use std::io::{BufWriter, Write};
+use std::fs::{File, OpenOptions};
 use std::{thread};
 use crossbeam_skiplist::SkipMap;
 use std::sync::Arc;
+use log::info;
 
 use crate::KvsEngine;
 use crate::engines::{Scans};
@@ -61,12 +62,15 @@ impl KvsEngine for LsmLogEngine {
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
         let internal_key = Key::new(key.to_string(),value.to_string(),DataType::Set);
         // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
+        // is_new_log: 是否开启了新的日志文件
         let is_new_log = self.wal_writer.add_records(&internal_key)?;
         if is_new_log {
-            // 如果为true ，表示当前的key已经被添加到 新的log文件中了，需要调换table
-            // 调换 两个table的状态
+            info!("开启了新的日志文件");
+            // 如果开启了新的日志文件，
+            // 1 表示当前的key已经被添加到 新的log文件中了，需要调换table,
+            // 调换 两个table的状态（只是修改状态不涉及其它修改）
             self.mem_tables.exchange();
-            // 当前的memtable就需要flush
+            // 2 同时当前的 memtable 就需要 flush
             minor_compact(self.mem_tables.imu_table().unwrap().table.clone())?;
         }
         // 将数据写入内存表
@@ -92,15 +96,21 @@ impl KvsEngine for LsmLogEngine {
 
 
 /// 将当前的 imu_table flush到 level-0
-pub fn minor_compact(imu_table: Arc<SkipMap<String,Key>>) -> Result<()> {
+fn minor_compact(imu_table: Arc<SkipMap<String,Key>>) -> Result<()> {
     thread::Builder::new()
         .name(MINOR_THREAD.to_string())
         .spawn(move || -> Result<()> {
+            info!("当前imu_table len{}",&imu_table.len());
+            // TODO  测试代码
+            let mut file =OpenOptions::new().write(true).append(true).open("b.txt")?;
+            // 每次一次切换写入一个 |#| 块
+            file.write_all(b"|#|")?;
+            file.flush()?;
 
-            // TODO
             imu_table.clear();
-            Ok(())
+            // TODO 之后要删除该imu_table 对应的log 文件
 
+            Ok(())
         })?;
 
     Ok(())
@@ -110,10 +120,20 @@ pub fn minor_compact(imu_table: Arc<SkipMap<String,Key>>) -> Result<()> {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+    use crate::common::fn_util::log_init;
 
     #[test]
-    fn test() {
+    fn test_01() -> Result<()> {
+        log_init();
+        let mut engine = LsmLogEngine::open()?;
+        // 83886.08
+        for _ in 0..283880 {
+            engine.set("测试","测试")?;
+        }
+        println!("{:?}",&engine);
 
+        Ok(())
     }
 
 }

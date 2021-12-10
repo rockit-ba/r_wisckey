@@ -17,7 +17,7 @@ pub const BLOCK_SIZE:usize = 1024 * 32;
 /// checksum (4 bytes), _type(1 bytes), value_len(8 bytes)
 pub const RECORD_HEADER_SIZE:usize = 4 + 1 + 8;
 /// 日志文件达到预定大小（4MB），将转换为 sort table，并创建新的日志文件以供将来更新
-pub const LOG_FILE_MAX_SIZE:usize = 1024 * 1024 * 4;
+pub const LOG_FILE_MAX_SIZE:u64 = 1024 * 1024 * 4;
 
 /// WAL日志写入的引用结构
 #[derive(Debug)]
@@ -50,13 +50,13 @@ impl LogRecordWrite {
     pub fn add_records(&mut self, data: &Key) -> Result<bool> {
         let mut is_new_log = false;
         // 当前log 文件大小校验,超过大小，创建新的log 文件写入
-        if self.block_writer.buffer().len() >= LOG_FILE_MAX_SIZE {
+        if self.block_writer.get_ref().metadata()?.len() >= LOG_FILE_MAX_SIZE {
             self.block_writer = gen_block_writer()?;
             is_new_log = true;
         }
 
         let mut data_byte = data.encode();
-        info!("data:{:?}",data);
+        // info!("data:{:?}",data);
         self.add_process(&mut data_byte)?;
         Ok(is_new_log)
     }
@@ -71,7 +71,7 @@ impl LogRecordWrite {
             Ordering::Greater => {
                 // 去掉头长度的空间
                 let data_free_size = self.block_writer_rest_len - RECORD_HEADER_SIZE;
-                info!("data_free_size: {}",data_free_size);
+                // info!("data_free_size: {}",data_free_size);
                 // 如果当前的数据在当前的block中放不下
                 if data_byte.len() > data_free_size {
                     // 根据data_free_size 切割
@@ -79,11 +79,11 @@ impl LogRecordWrite {
 
                     match self.last_record_type {
                         RecordType::None | RecordType::Full | RecordType::Last => {
-                            info!("First len {}",data_byte.len());
+                            // info!("First len {}",data_byte.len());
                             self.write_for_type(data_byte, RecordType::First)?;
                         },
                         RecordType::First | RecordType::Middle => {
-                            info!("Middle len {}",data_byte.len());
+                            // info!("Middle len {}",data_byte.len());
                             self.write_for_type(data_byte, RecordType::Middle)?;
                         },
                     };
@@ -144,7 +144,7 @@ impl LogRecordWrite {
             self.block_writer_rest_len = BLOCK_SIZE;
         }
         self.last_record_type = _type;
-        info!("当前record {:?}",&record_header);
+        // info!("当前record {:?}",&record_header);
         Ok(())
     }
 
@@ -479,6 +479,20 @@ mod test {
             ("a".to_string(),"bb".to_string()),("b".to_string(),"bb".to_string()),
             ("c".to_string(),"cc".to_string()),("d".to_string(),"dd".to_string()),
             ("e".to_string(),"ee".to_string()),("f".to_string(),"ff".to_string()),
+        ];
+        data.iter().for_each(|(key, value)| {
+            let key_test = Key::new(key.clone(), value.clone(), DataType::Set);
+            log_record.add_records(&key_test).unwrap();
+        });
+        Ok(())
+    }
+
+    #[test]
+    fn add_records_04_test() -> Result<()> {
+        log_init();
+        let mut log_record = LogRecordWrite::new()?;
+        let data = vec![
+            ("测试".to_string(),"测试".to_string()),
         ];
         data.iter().for_each(|(key, value)| {
             let key_test = Key::new(key.clone(), value.clone(), DataType::Set);

@@ -4,24 +4,14 @@ use std::io::{Write};
 use std::{io, fs};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use anyhow::Result;
-use crate::common::error_enum::WiscError;
 use std::path::{PathBuf, Path};
 use std::fs::{OpenOptions, File};
 use std::ffi::OsStr;
 use std::sync::atomic::{ Ordering, AtomicI64};
 use chrono::Local;
+use lazy_static::lazy_static;
 
-/// 根据字节序列获取 u32 checksum 值
-pub fn checksum(content: &[u8]) -> u32 {
-    let mut hasher = Hasher::new();
-    hasher.update(content);
-    hasher.finalize()
-}
-
-/// check sum 校验
-pub fn checksum_verify(content: &[u8], old_checksum: u32) -> bool {
-    checksum(content) == old_checksum
-}
+use crate::common::error_enum::WiscError;
 
 /// 日志格式初始化
 pub fn log_init() {
@@ -35,6 +25,18 @@ pub fn log_init() {
         })
         .filter_level(LevelFilter::Info)
         .init();
+}
+
+/// 根据字节序列获取 u32 checksum 值
+pub fn checksum(content: &[u8]) -> u32 {
+    let mut hasher = Hasher::new();
+    hasher.update(content);
+    hasher.finalize()
+}
+
+/// check sum 校验
+pub fn checksum_verify(content: &[u8], old_checksum: u32) -> bool {
+    checksum(content) == old_checksum
 }
 
 /// 是否是 `UnexpectedEof` 错误
@@ -115,10 +117,14 @@ pub fn get_file_path(dir: &Path, gen: i64, file_suffix: &str) -> PathBuf {
     dir.join(format!("{}{}", gen, file_suffix))
 }
 
-/// 全局自增元素
-pub static SEQUENCE:AtomicI64 = AtomicI64::new(0);
+lazy_static! {
+    /// 全局自增元素(并非始终全局+1自增，重启后将重置基础值，从时序上来看，它是递增的)
+    pub static ref SEQUENCE:AtomicI64 = {
+        AtomicI64::new(Local::now().timestamp_millis())
+    };
+}
 
 /// 获取全局增长 `i64` 序列
 pub fn gen_sequence() -> i64 {
-    Local::now().timestamp_millis() + SEQUENCE.fetch_add(1, Ordering::SeqCst)
+    SEQUENCE.fetch_add(1, Ordering::SeqCst)
 }
