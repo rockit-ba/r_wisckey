@@ -1,23 +1,23 @@
 //! log_record 数据模型
-use serde_derive::{Serialize,Deserialize};
 use anyhow::Result;
-use std::io::{BufWriter, Write, BufReader, Read};
-use std::fs::{File, create_dir_all, read_dir, OpenOptions};
-use log::{info, error};
-use std::collections::{BTreeMap};
-use std::env;
+use log::{error, info};
+use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
+use std::env;
+use std::fs::{create_dir_all, read_dir, File, OpenOptions};
+use std::io::{BufReader, BufWriter, Read, Write};
 
-use crate::common::fn_util::{checksum, open_option_default, checksum_verify, gen_sequence};
+use crate::common::fn_util::{checksum, checksum_verify, gen_sequence, open_option_default};
 use crate::common::types::ByteVec;
 use crate::config::SERVER_CONFIG;
 
 /// block 大小：32 KB
-pub const BLOCK_SIZE:usize = 1024 * 32;
+pub const BLOCK_SIZE: usize = 1024 * 32;
 /// checksum (4 bytes), _type(1 bytes), value_len(8 bytes)
-pub const RECORD_HEADER_SIZE:usize = 4 + 1 + 8;
+pub const RECORD_HEADER_SIZE: usize = 4 + 1 + 8;
 /// 日志文件达到预定大小（4MB），将转换为 sort table，并创建新的日志文件以供将来更新
-pub const LOG_FILE_MAX_SIZE:u64 = 1024 * 1024 * 4;
+pub const LOG_FILE_MAX_SIZE: u64 = 1024 * 1024 * 4;
 
 /// WAL日志写入的引用结构
 #[derive(Debug)]
@@ -30,7 +30,6 @@ pub struct LogRecordWrite {
     block_writer_rest_len: usize,
 }
 impl LogRecordWrite {
-
     /// 初始化 LogRecord 实体
     pub fn new() -> Result<Self> {
         // 当前 log 文件的写句柄
@@ -81,11 +80,11 @@ impl LogRecordWrite {
                         RecordType::None | RecordType::Full | RecordType::Last => {
                             // info!("First len {}",data_byte.len());
                             self.write_for_type(data_byte, RecordType::First)?;
-                        },
+                        }
                         RecordType::First | RecordType::Middle => {
                             // info!("Middle len {}",data_byte.len());
                             self.write_for_type(data_byte, RecordType::Middle)?;
-                        },
+                        }
                     };
                     // 递归调用
                     self.add_process(&mut rest_data_byte)?;
@@ -95,7 +94,7 @@ impl LogRecordWrite {
                     match self.last_record_type {
                         RecordType::None | RecordType::Full | RecordType::Last => {
                             self.write_for_type(data_byte, RecordType::Full)?;
-                        },
+                        }
                         RecordType::First | RecordType::Middle => {
                             self.write_for_type(data_byte, RecordType::Last)?;
                         }
@@ -113,7 +112,8 @@ impl LogRecordWrite {
             }
             Ordering::Less => {
                 // 使用 [0_u8;block_free_size] 填充
-                self.block_writer.write_all(vec![0_u8;self.block_writer_rest_len].as_slice())?;
+                self.block_writer
+                    .write_all(vec![0_u8; self.block_writer_rest_len].as_slice())?;
                 self.block_writer.flush()?;
                 self.block_writer_rest_len = BLOCK_SIZE;
                 info!("当前record [0_u8;block_free_size] 填充");
@@ -122,14 +122,10 @@ impl LogRecordWrite {
         Ok(())
     }
     /// 写 指定type的record；并flush 和更新 block_writer_rest_len
-    fn write_for_type(&mut self,
-                      data_byte: &mut ByteVec,
-                      _type: RecordType) -> Result<()>
-    {
+    fn write_for_type(&mut self, data_byte: &mut ByteVec, _type: RecordType) -> Result<()> {
         let checksum = checksum(data_byte.as_slice());
-        let record_header = RecordHeader::new(checksum,
-                                              _type.clone() as u8,
-                                              data_byte.len() as u64);
+        let record_header =
+            RecordHeader::new(checksum, _type.clone() as u8, data_byte.len() as u64);
 
         let mut header_byte = bincode::serialize(&record_header)?;
         header_byte.append(data_byte);
@@ -147,7 +143,6 @@ impl LogRecordWrite {
         // info!("当前record {:?}",&record_header);
         Ok(())
     }
-
 }
 
 /// 获取一个新的log 文件写句柄
@@ -158,7 +153,7 @@ fn gen_block_writer() -> Result<BufWriter<File>> {
     let file_name = format!("{}.{}", gen_sequence(), SERVER_CONFIG.log_file_extension);
     let log_file = open_option_default(log_dir.join(file_name.as_str()))?;
     // 当前 log 文件的写句柄
-    Ok(BufWriter::with_capacity(BLOCK_SIZE,log_file))
+    Ok(BufWriter::with_capacity(BLOCK_SIZE, log_file))
 }
 
 /// WAL日志读取的引用结构
@@ -197,7 +192,7 @@ impl LogRecordRead {
             block_reader,
             value_byte: ByteVec::new(),
             have_read_len: 0,
-            recovery_data: BTreeMap::new()
+            recovery_data: BTreeMap::new(),
         })
     }
 
@@ -206,22 +201,25 @@ impl LogRecordRead {
     pub fn read_log(&mut self) -> Result<()> {
         if let Some(reader) = self.block_reader.as_mut() {
             while self.have_read_len < reader.get_ref().metadata()?.len() {
-                read_block_process(reader,
-                                   &mut self.have_read_len,
-                                   &mut self.recovery_data,
-                                   &mut self.value_byte)?;
+                read_block_process(
+                    reader,
+                    &mut self.have_read_len,
+                    &mut self.recovery_data,
+                    &mut self.value_byte,
+                )?;
             }
-            info!("读取完毕：have_read_len {}",self.have_read_len);
+            info!("读取完毕：have_read_len {}", self.have_read_len);
         };
         Ok(())
     }
 }
 /// 处理一个block的数据
-fn read_block_process(block_reader: &mut BufReader<File>,
-                      have_read_len: &mut u64,
-                      recovery_data: &mut BTreeMap<String, Key>,
-                      value_byte: &mut ByteVec) -> Result<()>
-{
+fn read_block_process(
+    block_reader: &mut BufReader<File>,
+    have_read_len: &mut u64,
+    recovery_data: &mut BTreeMap<String, Key>,
+    value_byte: &mut ByteVec,
+) -> Result<()> {
     let mut buffer = [0; BLOCK_SIZE];
     // 自增 已读取 的长度
     *have_read_len += block_reader.read(&mut buffer)? as u64;
@@ -232,17 +230,18 @@ fn read_block_process(block_reader: &mut BufReader<File>,
 }
 
 /// 处理一条record
-fn read_record_process(buffer: &mut ByteVec,
-                       recovery_data: &mut BTreeMap<String, Key>,
-                       value_byte: &mut ByteVec) -> Result<()>
-{
+fn read_record_process(
+    buffer: &mut ByteVec,
+    recovery_data: &mut BTreeMap<String, Key>,
+    value_byte: &mut ByteVec,
+) -> Result<()> {
     if buffer.len() < RECORD_HEADER_SIZE {
         return Ok(());
     }
     // 先读取header信息
     let mut rest_data = buffer.split_off(RECORD_HEADER_SIZE);
     let header = bincode::deserialize::<RecordHeader>(buffer.as_slice())?;
-    info!("header：{:?}",header);
+    info!("header：{:?}", header);
 
     // block空 header 的尾部，此次 block 读取完毕
     if header._type == RecordType::None as u8 {
@@ -252,20 +251,19 @@ fn read_record_process(buffer: &mut ByteVec,
     else if header._type == RecordType::Full as u8 {
         let mut other_data = rest_data.split_off(header.value_len as usize);
         if !checksum_verify(rest_data.as_slice(), header.checksum) {
-            error!("checksum 校验失败: {:?}",&header);
-        }else {
+            error!("checksum 校验失败: {:?}", &header);
+        } else {
             let key_test = Key::decode(&mut rest_data)?;
-            recovery_data.insert(key_test.get_sort_key(),key_test);
+            recovery_data.insert(key_test.get_sort_key(), key_test);
         }
         // 继续执行
         read_record_process(&mut other_data, recovery_data, value_byte)?;
         Ok(())
-    }
-    else if header._type == RecordType::First as u8 {
+    } else if header._type == RecordType::First as u8 {
         // 对于first 来说它不需要知道value ，只需要把剩下的直接拼接到value_byte 即可
         if !checksum_verify(rest_data.as_slice(), header.checksum) {
-            error!("checksum 校验失败: {:?}",&header);
-        }else {
+            error!("checksum 校验失败: {:?}", &header);
+        } else {
             value_byte.append(&mut rest_data);
         }
         Ok(())
@@ -274,8 +272,8 @@ fn read_record_process(buffer: &mut ByteVec,
     else if header._type == RecordType::Middle as u8 {
         // 对于Middle 来说同样它不需要知道value ，只需要把剩下的直接拼接到value_byte 即可
         if !checksum_verify(rest_data.as_slice(), header.checksum) {
-            error!("checksum 校验失败: {:?}",&header);
-        }else {
+            error!("checksum 校验失败: {:?}", &header);
+        } else {
             value_byte.append(&mut rest_data);
         }
         Ok(())
@@ -286,8 +284,8 @@ fn read_record_process(buffer: &mut ByteVec,
         // 对于last 来说 它后面可能还会有数据，所以它需要value_size 来确定截取的长度
         let mut other_data = rest_data.split_off(header.value_len as usize);
         if !checksum_verify(rest_data.as_slice(), header.checksum) {
-            error!("checksum 校验失败: {:?}",&header);
-        }else {
+            error!("checksum 校验失败: {:?}", &header);
+        } else {
             value_byte.append(&mut rest_data);
             let key_test = Key::decode(value_byte)?;
             recovery_data.insert(key_test.get_sort_key(), key_test);
@@ -310,7 +308,11 @@ pub struct RecordHeader {
 }
 impl RecordHeader {
     pub fn new(checksum: u32, _type: u8, value_len: u64) -> Self {
-        RecordHeader { checksum, value_len, _type }
+        RecordHeader {
+            checksum,
+            value_len,
+            _type,
+        }
     }
 }
 impl Default for RecordHeader {
@@ -318,7 +320,7 @@ impl Default for RecordHeader {
         RecordHeader {
             checksum: 0,
             value_len: 0,
-            _type: RecordType::None as u8
+            _type: RecordType::None as u8,
         }
     }
 }
@@ -332,7 +334,7 @@ pub enum RecordType {
     // 分段的类型
     First,
     Middle,
-    Last
+    Last,
 }
 
 /// 操作类型 可取：`Insert` `Update` `Delete`，针对用户命令解析
@@ -342,7 +344,7 @@ pub enum RecordType {
 pub enum CommandType {
     Insert,
     Update,
-    Delete
+    Delete,
 }
 
 /// internal_key = key + sequence + type
@@ -358,9 +360,7 @@ pub struct Key {
     value: String,
 }
 impl Key {
-    pub fn new(key: String,
-               value: String,
-               data_type: DataType) -> Self{
+    pub fn new(key: String, value: String, data_type: DataType) -> Self {
         let sequence = gen_sequence(); // 8
         let data_type = data_type as u8; // 1
         let value_size = value.as_bytes().len() as u64; // 8
@@ -371,7 +371,7 @@ impl Key {
             sequence,
             data_type,
             value_size,
-            value
+            value,
         }
     }
 
@@ -393,7 +393,7 @@ impl Key {
         buf.clone()
     }
 
-    pub fn decode(content: &mut ByteVec) -> Result<Self>{
+    pub fn decode(content: &mut ByteVec) -> Result<Self> {
         let mut rest_content = content.split_off(8_usize);
         let internal_key_size = bincode::deserialize::<u64>(content.as_slice())?;
 
@@ -401,24 +401,21 @@ impl Key {
         let mut value_content = rest_content.split_off(internal_key_size as usize);
         let key_rest_content = rest_content.split_off(rest_content.len() - 9_usize);
         let key = String::from_utf8(rest_content)?;
-        let (sequence_byte,data_type_byte) = key_rest_content.split_at(8_usize);
+        let (sequence_byte, data_type_byte) = key_rest_content.split_at(8_usize);
         let sequence = bincode::deserialize::<i64>(sequence_byte)?;
         let data_type = bincode::deserialize::<u8>(data_type_byte)?;
 
         let value_byte = value_content.split_off(8_usize);
         let value_size = bincode::deserialize::<u64>(value_content.as_slice())?;
         let value = String::from_utf8(value_byte)?;
-        Ok(
-            Key {
-                internal_key_size,
-                key,
-                sequence,
-                data_type,
-                value_size,
-                value
-            }
-        )
-
+        Ok(Key {
+            internal_key_size,
+            key,
+            sequence,
+            data_type,
+            value_size,
+            value,
+        })
     }
 }
 
@@ -434,8 +431,8 @@ pub enum DataType {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::io::{Read};
-    use crate::common::fn_util::{log_init};
+    use crate::common::fn_util::log_init;
+    use std::io::Read;
     use std::path::Path;
 
     #[test]
@@ -475,10 +472,14 @@ mod test {
         log_init();
         let mut log_record = LogRecordWrite::new()?;
         let data = vec![
-            ("a".to_string(),"bb".to_string()),("a".to_string(),"bb".to_string()),
-            ("a".to_string(),"bb".to_string()),("b".to_string(),"bb".to_string()),
-            ("c".to_string(),"cc".to_string()),("d".to_string(),"dd".to_string()),
-            ("e".to_string(),"ee".to_string()),("f".to_string(),"ff".to_string()),
+            ("a".to_string(), "bb".to_string()),
+            ("a".to_string(), "bb".to_string()),
+            ("a".to_string(), "bb".to_string()),
+            ("b".to_string(), "bb".to_string()),
+            ("c".to_string(), "cc".to_string()),
+            ("d".to_string(), "dd".to_string()),
+            ("e".to_string(), "ee".to_string()),
+            ("f".to_string(), "ff".to_string()),
         ];
         data.iter().for_each(|(key, value)| {
             let key_test = Key::new(key.clone(), value.clone(), DataType::Set);
@@ -491,9 +492,7 @@ mod test {
     fn add_records_04_test() -> Result<()> {
         log_init();
         let mut log_record = LogRecordWrite::new()?;
-        let data = vec![
-            ("测试".to_string(),"测试".to_string()),
-        ];
+        let data = vec![("测试".to_string(), "测试".to_string())];
         data.iter().for_each(|(key, value)| {
             let key_test = Key::new(key.clone(), value.clone(), DataType::Set);
             log_record.add_records(&key_test).unwrap();
@@ -507,7 +506,7 @@ mod test {
         let mut reader = LogRecordRead::new()?;
         reader.read_log()?;
         let data = reader.recovery_data;
-        println!("{:?}",data);
+        println!("{:?}", data);
         Ok(())
     }
 
@@ -515,7 +514,7 @@ mod test {
     fn test() {
         let a = Path::new("log");
         let b = read_dir(a).unwrap().last();
-        println!("{:?}",b.unwrap().unwrap().file_name());
-        println!("{}",read_dir(a).unwrap().count());
+        println!("{:?}", b.unwrap().unwrap().file_name());
+        println!("{}", read_dir(a).unwrap().count());
     }
 }

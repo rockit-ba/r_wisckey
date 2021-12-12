@@ -1,10 +1,10 @@
-use std::ops::Range;
 use serde_derive::{Deserialize, Serialize};
+use std::ops::Range;
 
 pub use lsm_log_engine::lsm_engine::LsmLogEngine;
 pub mod lsm_log_engine;
 
-pub trait KvsEngine  {
+pub trait KvsEngine {
     /// 设置字符串键值对
     ///
     /// 如果key 已经存在，则之前的对应的value将被新的覆盖

@@ -10,7 +10,7 @@ use crate::engines::lsm_log_engine::wal_log::Key;
 /// 单个内存表的结构体表示
 #[derive(Debug)]
 pub struct MemTable {
-    pub table: Arc<SkipMap<String,Key>>,
+    pub table: Arc<SkipMap<String, Key>>,
     /// 是否可变
     pub status: MemTableStatus,
     num: u8,
@@ -40,7 +40,7 @@ pub enum MemTableStatus {
     Imu,
     Mut,
     /// 临时中转状态
-    Temp
+    Temp,
 }
 
 /// 包含可变和不可变内存表的结构体表示
@@ -54,42 +54,58 @@ pub struct MemTables {
 impl MemTables {
     pub fn new() -> Self {
         MemTables {
-            mem_table_01: MemTable { table: Default::default(), status: MemTableStatus::Mut, num: 0 },
-            mem_table_02: MemTable { table: Default::default(), status: MemTableStatus::Imu, num: 1 },
+            mem_table_01: MemTable {
+                table: Default::default(),
+                status: MemTableStatus::Mut,
+                num: 0,
+            },
+            mem_table_02: MemTable {
+                table: Default::default(),
+                status: MemTableStatus::Imu,
+                num: 1,
+            },
         }
     }
     /// 获取其中的可变内存表
     pub fn mut_table(&mut self) -> Option<&mut MemTable> {
         if self.mem_table_01.status == MemTableStatus::Mut {
             Some(&mut self.mem_table_01)
-        }else if self.mem_table_02.status == MemTableStatus::Mut {
+        } else if self.mem_table_02.status == MemTableStatus::Mut {
             Some(&mut self.mem_table_02)
-        }else { None }
-
+        } else {
+            None
+        }
     }
     /// 获取其中的不可变内存表
     pub fn imu_table(&mut self) -> Option<&mut MemTable> {
         if self.mem_table_01.status == MemTableStatus::Imu {
             Some(&mut self.mem_table_01)
-        }else if self.mem_table_02.status == MemTableStatus::Imu {
+        } else if self.mem_table_02.status == MemTableStatus::Imu {
             Some(&mut self.mem_table_02)
-        }else { None }
+        } else {
+            None
+        }
     }
     /// 获取其中的临时状态内存表
     ///
     /// 注意调用此方法的时候需要确保上文中进行过 `mark_temp` 操作
     pub fn temp_table(&mut self) -> Option<&mut MemTable> {
         match self.mem_table_01.status {
-            MemTableStatus::Temp => {Some(&mut self.mem_table_01)}
-            _ => {Some(&mut self.mem_table_02)}
+            MemTableStatus::Temp => Some(&mut self.mem_table_01),
+            _ => Some(&mut self.mem_table_02),
         }
     }
     /// 写入memtable
     pub fn add_record(&mut self, key: &Key) {
         loop {
-            if self.mut_table().is_some() { break; }
+            if self.mut_table().is_some() {
+                break;
+            }
         }
-        self.mut_table().unwrap().table.insert(key.get_sort_key(),key.clone());
+        self.mut_table()
+            .unwrap()
+            .table
+            .insert(key.get_sort_key(), key.clone());
     }
 
     /// 调换两个table的状态
@@ -107,19 +123,19 @@ impl MemTables {
             // 那么这时交换是需要阻塞的，
             // 等imu_table flush 结束之后才会交换状态
             if let Some(imu_table) = self.imu_table() {
-                if imu_table.table.is_empty() { break; }
+                if imu_table.table.is_empty() {
+                    break;
+                }
             }
         }
         // 中间状态只会存在于这段代码中，
         // 因此 接下来的状态的table都必定有值的
-        self.mut_table().unwrap().mark_temp();  // 临时状态
-        // 上面的阻塞确保了 imu_table-》转换的 mut_table 是可以接受新数据的
+        self.mut_table().unwrap().mark_temp(); // 临时状态
+                                               // 上面的阻塞确保了 imu_table-》转换的 mut_table 是可以接受新数据的
         self.imu_table().unwrap().mark_mut();
         self.temp_table().unwrap().mark_imu();
     }
-
 }
-
 
 #[cfg(test)]
 mod test {
@@ -127,11 +143,6 @@ mod test {
     #[test]
     fn test() {
         let a = MemTables::new();
-        println!("{:?}",a);
+        println!("{:?}", a);
     }
 }
-
-
-
-
-

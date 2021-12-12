@@ -1,14 +1,14 @@
 //! 存储引擎服务端
 
 use anyhow::Result;
-use log::{info,error};
+use log::{error, info};
 
-use r_wisckey::{LsmLogEngine, Server};
 use r_wisckey::common::fn_util::{log_init, socket_addr_from_str};
 use r_wisckey::config::SERVER_CONFIG;
+use r_wisckey::{LsmLogEngine, Server};
 use std::process::exit;
 
-const BANNER:&str = r#"                  .__                  __
+const BANNER: &str = r#"                  .__                  __
 _______  __  _  __|__|  ______  ____  |  | __  ____  ___.__.
 \_  __ \ \ \/ \/ /|  | /  ___/_/ ___\ |  |/ /_/ __ \<   |  |
  |  | \/  \     / |  | \___ \ \  \___ |    < \  ___/ \___  |
@@ -18,21 +18,20 @@ _______  __  _  __|__|  ______  ____  |  | __  ____  ___.__.
 fn main() {
     log_init();
     if let Err(err) = run() {
-        error!("{:?}",err);
+        error!("{:?}", err);
         exit(1);
     }
 }
 
-fn run() -> Result<()>{
+fn run() -> Result<()> {
     let engine = LsmLogEngine::open()?;
 
     let mut server = Server::new(engine);
     let socket_addr = socket_addr_from_str(SERVER_CONFIG.server_addr.as_str())?;
-    info!("{}",BANNER);
+    info!("{}", BANNER);
     info!("wisc-server version: {}", env!("CARGO_PKG_VERSION"));
     info!("Listening on {:?}", &socket_addr);
 
     server.run(socket_addr)?;
     Ok(())
 }
-
