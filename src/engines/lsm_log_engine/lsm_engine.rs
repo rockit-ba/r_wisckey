@@ -3,21 +3,21 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
-use std::io::{BufWriter, Write};
-use std::fs::{File, OpenOptions};
-use std::{thread};
 use crossbeam_skiplist::SkipMap;
-use std::sync::Arc;
 use log::info;
+use std::fs::{File, OpenOptions};
+use std::io::{BufWriter, Write};
+use std::sync::Arc;
+use std::thread;
 
-use crate::KvsEngine;
-use crate::engines::{Scans};
 use crate::engines::lsm_log_engine::level::LevelDir;
-use crate::engines::lsm_log_engine::wal_log::{ LogRecordWrite, LogRecordRead, Key, DataType};
 use crate::engines::lsm_log_engine::mem::MemTables;
+use crate::engines::lsm_log_engine::wal_log::{DataType, Key, LogRecordRead, LogRecordWrite};
+use crate::engines::Scans;
+use crate::KvsEngine;
 
 /// minor-thread name
-pub const MINOR_THREAD:&str = "minor-thread";
+pub const MINOR_THREAD: &str = "minor-thread";
 
 /// 更新操作最终在lsm看来只有两种操作：set和 delete
 ///
@@ -33,7 +33,6 @@ pub struct LsmLogEngine {
     mem_tables: MemTables,
     /// mem_table 不可变之后将刷入 level-0 SSTable
     level_0_writer: BufWriter<File>,
-
 }
 impl LsmLogEngine {
     pub fn open() -> Result<Self> {
@@ -52,15 +51,13 @@ impl LsmLogEngine {
             wal_reader,
             mem_tables,
             level_0_writer,
-        }
-        )
+        })
     }
-
 }
 impl KvsEngine for LsmLogEngine {
     /// 用户的set操作
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
-        let internal_key = Key::new(key.to_string(),value.to_string(),DataType::Set);
+        let internal_key = Key::new(key.to_string(), value.to_string(), DataType::Set);
         // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
         // is_new_log: 是否开启了新的日志文件
         let is_new_log = self.wal_writer.add_records(&internal_key)?;
@@ -94,15 +91,14 @@ impl KvsEngine for LsmLogEngine {
     }
 }
 
-
 /// 将当前的 imu_table flush到 level-0
-fn minor_compact(imu_table: Arc<SkipMap<String,Key>>) -> Result<()> {
+fn minor_compact(imu_table: Arc<SkipMap<String, Key>>) -> Result<()> {
     thread::Builder::new()
         .name(MINOR_THREAD.to_string())
         .spawn(move || -> Result<()> {
-            info!("当前imu_table len{}",&imu_table.len());
+            info!("当前imu_table len{}", &imu_table.len());
             // TODO  测试代码
-            let mut file =OpenOptions::new().write(true).append(true).open("b.txt")?;
+            let mut file = OpenOptions::new().write(true).append(true).open("b.txt")?;
             // 每次一次切换写入一个 |#| 块
             file.write_all(b"|#|")?;
             file.flush()?;
@@ -116,8 +112,6 @@ fn minor_compact(imu_table: Arc<SkipMap<String,Key>>) -> Result<()> {
     Ok(())
 }
 
-
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -129,11 +123,10 @@ mod test {
         let mut engine = LsmLogEngine::open()?;
         // 83886.08
         for _ in 0..283880 {
-            engine.set("测试","测试")?;
+            engine.set("测试", "测试")?;
         }
-        println!("{:?}",&engine);
+        println!("{:?}", &engine);
 
         Ok(())
     }
-
 }
