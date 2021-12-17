@@ -33,7 +33,7 @@ pub struct LsmLogEngine {
     /// MemTable,因为我们需要保持数据的有序性，
     mem_tables: MemTables,
     /// mem_table 不可变之后将刷入 level-0 SSTable
-    level_0_writer: BufWriter<File>,
+    level_0_writer: Arc<Mutex<BufWriter<File>>>,
 }
 impl LsmLogEngine {
     pub fn open() -> Result<Self> {
@@ -45,13 +45,13 @@ impl LsmLogEngine {
 
         // 初始化 sst_writer，从level_0文件夹中查找，因为 minor compression 直接
         // 刷到level_0层级中的sst文件中
-        let level_0_writer = LevelDir::new(0).init_level_0_writer()?;
+        let level_0_writer = LevelDir::new(0).level_0_writer()?;
 
         Ok(LsmLogEngine {
             wal_writer,
             wal_reader,
             mem_tables,
-            level_0_writer,
+            level_0_writer: Arc::new(Mutex::new(level_0_writer)),
         })
     }
 }
@@ -71,6 +71,7 @@ impl KvsEngine for LsmLogEngine {
             // 2 同时当前的 memtable 就需要 flush
             minor_compact(
                 self.mem_tables.imu_table().unwrap().table.clone(),
+                self.level_0_writer.clone(),
                 Arc::new(Mutex::new(new_log_path)))?;
         }
         // 将数据写入内存表
@@ -97,13 +98,21 @@ impl KvsEngine for LsmLogEngine {
 /// 将当前的 imu_table flush到 level-0
 fn minor_compact(
     imu_table: Arc<SkipMap<String, Key>>,
+    level_0_writer: Arc<Mutex<BufWriter<File>>>,
     write_log_path: Arc<Mutex<PathBuf>>
 ) -> Result<()> {
     thread::Builder::new()
         .name(MINOR_THREAD.to_string())
         .spawn(move || -> Result<()> {
             info!("当前imu_table len{}", &imu_table.len());
-            // TODO  测试代码
+            // TODO  测试代码，这里需要将 imu_table 刷入 level_0
+
+
+
+
+
+
+
             let mut file = OpenOptions::new()
                 .write(true)
                 .append(true)
@@ -111,7 +120,8 @@ fn minor_compact(
             // 每次一次切换写入一个 |#| 块
             file.write_all(b"|#|")?;
             file.flush()?;
-
+            // 必须清空，没清空之前可用table没有空间将阻塞用户的继续操作
+            // 这里要放在 写文件完成之后
             imu_table.clear();
             // 之后删除该imu_table 对应的log 文件
             remove_file(write_log_path.lock().unwrap().as_path())?;

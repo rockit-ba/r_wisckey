@@ -42,7 +42,7 @@ impl LevelDir {
     }
 
     /// 初始化 创建并返回当前 `LevelDir` 的 writer
-    pub fn init_level_0_writer(&self) -> Result<BufWriter<File>> {
+    pub fn level_0_writer(&self) -> Result<BufWriter<File>> {
         let path = self.to_path()?;
         let read_dir_count = read_dir(&path)?;
 
