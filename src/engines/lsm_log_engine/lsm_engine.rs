@@ -5,9 +5,10 @@
 use anyhow::Result;
 use crossbeam_skiplist::SkipMap;
 use log::info;
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, remove_file};
 use std::io::{BufWriter, Write};
-use std::sync::Arc;
+use std::path::{PathBuf};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::engines::lsm_log_engine::level::LevelDir;
@@ -58,6 +59,7 @@ impl KvsEngine for LsmLogEngine {
     /// 用户的set操作
     fn set(&mut self, key: &str, value: &str) -> Result<()> {
         let internal_key = Key::new(key.to_string(), value.to_string(), DataType::Set);
+
         // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
         // is_new_log: 是否开启了新的日志文件
         let is_new_log = self.wal_writer.add_records(&internal_key)?;
@@ -68,7 +70,9 @@ impl KvsEngine for LsmLogEngine {
             // 调换 两个table的状态（只是修改状态不涉及其它修改）
             self.mem_tables.exchange();
             // 2 同时当前的 memtable 就需要 flush
-            minor_compact(self.mem_tables.imu_table().unwrap().table.clone())?;
+            minor_compact(
+                self.mem_tables.imu_table().unwrap().table.clone(),
+                self.wal_writer.write_log_path())?;
         }
         // 将数据写入内存表
         self.mem_tables.add_record(&internal_key);
@@ -92,20 +96,26 @@ impl KvsEngine for LsmLogEngine {
 }
 
 /// 将当前的 imu_table flush到 level-0
-fn minor_compact(imu_table: Arc<SkipMap<String, Key>>) -> Result<()> {
+fn minor_compact(
+    imu_table: Arc<SkipMap<String, Key>>,
+    write_log_path: Arc<Mutex<PathBuf>>
+) -> Result<()> {
     thread::Builder::new()
         .name(MINOR_THREAD.to_string())
         .spawn(move || -> Result<()> {
             info!("当前imu_table len{}", &imu_table.len());
             // TODO  测试代码
-            let mut file = OpenOptions::new().write(true).append(true).open("b.txt")?;
+            let mut file = OpenOptions::new()
+                .write(true)
+                .append(true)
+                .open("b.txt")?;
             // 每次一次切换写入一个 |#| 块
             file.write_all(b"|#|")?;
             file.flush()?;
 
             imu_table.clear();
-            // TODO 之后要删除该imu_table 对应的log 文件
-
+            // 之后删除该imu_table 对应的log 文件
+            remove_file(write_log_path.lock().unwrap().as_path())?;
             Ok(())
         })?;
 

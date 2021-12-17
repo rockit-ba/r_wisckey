@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs::{create_dir_all, read_dir, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::{PathBuf};
+use std::sync::{Arc, Mutex};
 
 use crate::common::fn_util::{checksum, checksum_verify, gen_sequence, open_option_default};
 use crate::common::types::ByteVec;
@@ -24,6 +26,8 @@ pub const LOG_FILE_MAX_SIZE: u64 = 1024 * 1024 * 4;
 pub struct LogRecordWrite {
     /// 当前 log 文件的写句柄
     block_writer: BufWriter<File>,
+    /// 当前 log 文件的写path
+    block_writer_file: Arc<Mutex<PathBuf>>,
     /// 上一次add_process的RecordType
     last_record_type: RecordType,
     /// 当前block剩余的空间，初始化就是满的 BLOCK_SIZE
@@ -33,12 +37,17 @@ impl LogRecordWrite {
     /// 初始化 LogRecord 实体
     pub fn new() -> Result<Self> {
         // 当前 log 文件的写句柄
-        let block_writer = gen_block_writer()?;
+        let (block_writer, path) = gen_block_writer()?;
         Ok(LogRecordWrite {
             block_writer,
+            block_writer_file: Arc::new(Mutex::new(path)),
             last_record_type: RecordType::None,
             block_writer_rest_len: BLOCK_SIZE,
         })
+    }
+    /// 获取当前写日志文件的path
+    pub fn write_log_path(&self) -> Arc<Mutex<PathBuf>> {
+        self.block_writer_file.clone()
     }
 
     /// 往 log 中添加 record
@@ -50,7 +59,11 @@ impl LogRecordWrite {
         let mut is_new_log = false;
         // 当前log 文件大小校验,超过大小，创建新的log 文件写入
         if self.block_writer.get_ref().metadata()?.len() >= LOG_FILE_MAX_SIZE {
-            self.block_writer = gen_block_writer()?;
+            let (writer, path) = gen_block_writer()?;
+            self.block_writer = writer;
+            {
+                *self.block_writer_file.lock().unwrap() = path;
+            }
             is_new_log = true;
         }
 
@@ -145,15 +158,16 @@ impl LogRecordWrite {
     }
 }
 
-/// 获取一个新的log 文件写句柄
-fn gen_block_writer() -> Result<BufWriter<File>> {
+/// 获取一个新的log 文件写句柄 和他的path
+fn gen_block_writer() -> Result<(BufWriter<File>, PathBuf)> {
     let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
     create_dir_all(log_dir.clone())?;
 
     let file_name = format!("{}.{}", gen_sequence(), SERVER_CONFIG.log_file_extension);
-    let log_file = open_option_default(log_dir.join(file_name.as_str()))?;
+    let path = log_dir.join(file_name.as_str());
+    let log_file = open_option_default(path.clone())?;
     // 当前 log 文件的写句柄
-    Ok(BufWriter::with_capacity(BLOCK_SIZE, log_file))
+    Ok((BufWriter::with_capacity(BLOCK_SIZE, log_file), path))
 }
 
 /// WAL日志读取的引用结构
@@ -201,7 +215,7 @@ impl LogRecordRead {
     pub fn read_log(&mut self) -> Result<()> {
         if let Some(reader) = self.block_reader.as_mut() {
             while self.have_read_len < reader.get_ref().metadata()?.len() {
-                read_block_process(
+                LogRecordRead::read_block_process(
                     reader,
                     &mut self.have_read_len,
                     &mut self.recovery_data,
@@ -212,90 +226,91 @@ impl LogRecordRead {
         };
         Ok(())
     }
-}
-/// 处理一个block的数据
-fn read_block_process(
-    block_reader: &mut BufReader<File>,
-    have_read_len: &mut u64,
-    recovery_data: &mut BTreeMap<String, Key>,
-    value_byte: &mut ByteVec,
-) -> Result<()> {
-    let mut buffer = [0; BLOCK_SIZE];
-    // 自增 已读取 的长度
-    *have_read_len += block_reader.read(&mut buffer)? as u64;
-    info!("############### 读取block ###############");
-    let mut buffer = ByteVec::from(buffer);
 
-    read_record_process(&mut buffer, recovery_data, value_byte)
-}
+    /// 处理一个block的数据
+    fn read_block_process(
+        block_reader: &mut BufReader<File>,
+        have_read_len: &mut u64,
+        recovery_data: &mut BTreeMap<String, Key>,
+        value_byte: &mut ByteVec,
+    ) -> Result<()> {
+        let mut buffer = [0; BLOCK_SIZE];
+        // 自增 已读取 的长度
+        *have_read_len += block_reader.read(&mut buffer)? as u64;
+        info!("############### 读取block ###############");
+        let mut buffer = ByteVec::from(buffer);
 
-/// 处理一条record
-fn read_record_process(
-    buffer: &mut ByteVec,
-    recovery_data: &mut BTreeMap<String, Key>,
-    value_byte: &mut ByteVec,
-) -> Result<()> {
-    if buffer.len() < RECORD_HEADER_SIZE {
-        return Ok(());
+        LogRecordRead::read_record_process(&mut buffer, recovery_data, value_byte)
     }
-    // 先读取header信息
-    let mut rest_data = buffer.split_off(RECORD_HEADER_SIZE);
-    let header = bincode::deserialize::<RecordHeader>(buffer.as_slice())?;
-    info!("header：{:?}", header);
 
-    // block空 header 的尾部，此次 block 读取完毕
-    if header._type == RecordType::None as u8 {
-        Ok(())
-    }
-    // 读取 header 中data_len 的数据即可得到数据
-    else if header._type == RecordType::Full as u8 {
-        let mut other_data = rest_data.split_off(header.value_len as usize);
-        if !checksum_verify(rest_data.as_slice(), header.checksum) {
-            error!("checksum 校验失败: {:?}", &header);
-        } else {
-            let key_test = Key::decode(&mut rest_data)?;
-            recovery_data.insert(key_test.get_sort_key(), key_test);
+    /// 处理一条record
+    fn read_record_process(
+        buffer: &mut ByteVec,
+        recovery_data: &mut BTreeMap<String, Key>,
+        value_byte: &mut ByteVec,
+    ) -> Result<()> {
+        if buffer.len() < RECORD_HEADER_SIZE {
+            return Ok(());
         }
-        // 继续执行
-        read_record_process(&mut other_data, recovery_data, value_byte)?;
-        Ok(())
-    } else if header._type == RecordType::First as u8 {
-        // 对于first 来说它不需要知道value ，只需要把剩下的直接拼接到value_byte 即可
-        if !checksum_verify(rest_data.as_slice(), header.checksum) {
-            error!("checksum 校验失败: {:?}", &header);
-        } else {
-            value_byte.append(&mut rest_data);
+        // 先读取header信息
+        let mut rest_data = buffer.split_off(RECORD_HEADER_SIZE);
+        let header = bincode::deserialize::<RecordHeader>(buffer.as_slice())?;
+        info!("header：{:?}", header);
+
+        // block空 header 的尾部，此次 block 读取完毕
+        if header._type == RecordType::None as u8 {
+            Ok(())
         }
-        Ok(())
-    }
-    // 往value_byte 中填充数据
-    else if header._type == RecordType::Middle as u8 {
-        // 对于Middle 来说同样它不需要知道value ，只需要把剩下的直接拼接到value_byte 即可
-        if !checksum_verify(rest_data.as_slice(), header.checksum) {
-            error!("checksum 校验失败: {:?}", &header);
-        } else {
-            value_byte.append(&mut rest_data);
+        // 读取 header 中data_len 的数据即可得到数据
+        else if header._type == RecordType::Full as u8 {
+            let mut other_data = rest_data.split_off(header.value_len as usize);
+            if !checksum_verify(rest_data.as_slice(), header.checksum) {
+                error!("checksum 校验失败: {:?}", &header);
+            } else {
+                let key_test = Key::decode(&mut rest_data)?;
+                recovery_data.insert(key_test.get_sort_key(), key_test);
+            }
+            // 继续执行
+            LogRecordRead::read_record_process(&mut other_data, recovery_data, value_byte)?;
+            Ok(())
+        } else if header._type == RecordType::First as u8 {
+            // 对于first 来说它不需要知道value ，只需要把剩下的直接拼接到value_byte 即可
+            if !checksum_verify(rest_data.as_slice(), header.checksum) {
+                error!("checksum 校验失败: {:?}", &header);
+            } else {
+                value_byte.append(&mut rest_data);
+            }
+            Ok(())
         }
-        Ok(())
-    }
-    // RecordType::LastType 的情况
-    else {
-        // 往value_byte 中填充数据,并且之后可以获取完整的value
-        // 对于last 来说 它后面可能还会有数据，所以它需要value_size 来确定截取的长度
-        let mut other_data = rest_data.split_off(header.value_len as usize);
-        if !checksum_verify(rest_data.as_slice(), header.checksum) {
-            error!("checksum 校验失败: {:?}", &header);
-        } else {
-            value_byte.append(&mut rest_data);
-            let key_test = Key::decode(value_byte)?;
-            recovery_data.insert(key_test.get_sort_key(), key_test);
-            // 清空 value_byte
-            value_byte.clear();
+        // 往value_byte 中填充数据
+        else if header._type == RecordType::Middle as u8 {
+            // 对于Middle 来说同样它不需要知道value ，只需要把剩下的直接拼接到value_byte 即可
+            if !checksum_verify(rest_data.as_slice(), header.checksum) {
+                error!("checksum 校验失败: {:?}", &header);
+            } else {
+                value_byte.append(&mut rest_data);
+            }
+            Ok(())
         }
-        // 继续执行
-        info!("last 读取完毕");
-        read_record_process(&mut other_data, recovery_data, value_byte)?;
-        Ok(())
+        // RecordType::LastType 的情况
+        else {
+            // 往value_byte 中填充数据,并且之后可以获取完整的value
+            // 对于last 来说 它后面可能还会有数据，所以它需要value_size 来确定截取的长度
+            let mut other_data = rest_data.split_off(header.value_len as usize);
+            if !checksum_verify(rest_data.as_slice(), header.checksum) {
+                error!("checksum 校验失败: {:?}", &header);
+            } else {
+                value_byte.append(&mut rest_data);
+                let key_test = Key::decode(value_byte)?;
+                recovery_data.insert(key_test.get_sort_key(), key_test);
+                // 清空 value_byte
+                value_byte.clear();
+            }
+            // 继续执行
+            info!("last 读取完毕");
+            LogRecordRead::read_record_process(&mut other_data, recovery_data, value_byte)?;
+            Ok(())
+        }
     }
 }
 
@@ -512,9 +527,9 @@ mod test {
 
     #[test]
     fn test() {
-        let a = Path::new("log");
-        let b = read_dir(a).unwrap().last();
-        println!("{:?}", b.unwrap().unwrap().file_name());
-        println!("{}", read_dir(a).unwrap().count());
+
+
     }
+
+
 }
