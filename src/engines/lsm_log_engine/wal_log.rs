@@ -1,4 +1,7 @@
 //! log_record 数据模型
+
+#![allow(dead_code)]
+
 use anyhow::Result;
 use log::{error, info};
 use serde_derive::{Deserialize, Serialize};
@@ -38,6 +41,7 @@ impl LogRecordWrite {
     pub fn new() -> Result<Self> {
         // 当前 log 文件的写句柄
         let (block_writer, path) = gen_block_writer()?;
+        info!("{:?}",&path);
         Ok(LogRecordWrite {
             block_writer,
             block_writer_file: Arc::new(Mutex::new(path)),
@@ -45,6 +49,7 @@ impl LogRecordWrite {
             block_writer_rest_len: BLOCK_SIZE,
         })
     }
+
     /// 获取当前写日志文件的path
     pub fn write_log_path(&self) -> Arc<Mutex<PathBuf>> {
         self.block_writer_file.clone()
@@ -55,22 +60,28 @@ impl LogRecordWrite {
     /// 调用该方法之前初始化 Key，这里只负责写入
     ///
     /// return : 是否切换了新的 log ；engine 需要此信息去更改 memtable
-    pub fn add_records(&mut self, data: &Key) -> Result<bool> {
-        let mut is_new_log = false;
+    pub fn add_records(&mut self, data: &Key) -> Result<Option<PathBuf>> {
+        let mut new_path = Option::None;
         // 当前log 文件大小校验,超过大小，创建新的log 文件写入
         if self.block_writer.get_ref().metadata()?.len() >= LOG_FILE_MAX_SIZE {
+            // 注意返回去的是 上一个满了的path ，而不是新的path，新的path将会在下次
+            {
+                new_path = Some(self.block_writer_file.lock().unwrap().clone());
+            }
+
             let (writer, path) = gen_block_writer()?;
             self.block_writer = writer;
             {
                 *self.block_writer_file.lock().unwrap() = path;
             }
-            is_new_log = true;
+            log::info!("{:?}",&new_path);
+            log::info!("{:?}",&self.block_writer_file);
         }
 
         let mut data_byte = data.encode();
         // info!("data:{:?}",data);
         self.add_process(&mut data_byte)?;
-        Ok(is_new_log)
+        Ok(new_path)
     }
     /// 单独的处理流程。分离方便递归调用
     fn add_process(&mut self, data_byte: &mut ByteVec) -> Result<()> {
@@ -448,7 +459,6 @@ mod test {
     use super::*;
     use crate::common::fn_util::log_init;
     use std::io::Read;
-    use std::path::Path;
 
     #[test]
     fn add_records_01_test() -> Result<()> {
