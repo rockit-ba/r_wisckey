@@ -62,8 +62,7 @@ impl KvsEngine for LsmLogEngine {
 
         // 写 WAL 的逻辑先于其他逻辑，这里失败就会返回用户此次操作失败
         // is_new_log: 是否开启了新的日志文件
-        let is_new_log = self.wal_writer.add_records(&internal_key)?;
-        if is_new_log {
+        if let Some(new_log_path) = self.wal_writer.add_records(&internal_key)? {
             info!("开启了新的日志文件");
             // 如果开启了新的日志文件，
             // 1 表示当前的key已经被添加到 新的log文件中了，需要调换table,
@@ -72,7 +71,7 @@ impl KvsEngine for LsmLogEngine {
             // 2 同时当前的 memtable 就需要 flush
             minor_compact(
                 self.mem_tables.imu_table().unwrap().table.clone(),
-                self.wal_writer.write_log_path())?;
+                Arc::new(Mutex::new(new_log_path)))?;
         }
         // 将数据写入内存表
         self.mem_tables.add_record(&internal_key);
