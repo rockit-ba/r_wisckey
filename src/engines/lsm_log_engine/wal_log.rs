@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs::{create_dir_all, read_dir, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::{PathBuf};
+use std::sync::{Arc, Mutex};
 
 use crate::common::fn_util::{checksum, checksum_verify, gen_sequence, open_option_default};
 use crate::common::types::ByteVec;
@@ -24,6 +26,8 @@ pub const LOG_FILE_MAX_SIZE: u64 = 1024 * 1024 * 4;
 pub struct LogRecordWrite {
     /// 当前 log 文件的写句柄
     block_writer: BufWriter<File>,
+    /// 当前 log 文件的写path
+    block_writer_file: Arc<Mutex<PathBuf>>,
     /// 上一次add_process的RecordType
     last_record_type: RecordType,
     /// 当前block剩余的空间，初始化就是满的 BLOCK_SIZE
@@ -33,12 +37,17 @@ impl LogRecordWrite {
     /// 初始化 LogRecord 实体
     pub fn new() -> Result<Self> {
         // 当前 log 文件的写句柄
-        let block_writer = gen_block_writer()?;
+        let (block_writer, path) = gen_block_writer()?;
         Ok(LogRecordWrite {
             block_writer,
+            block_writer_file: Arc::new(Mutex::new(path)),
             last_record_type: RecordType::None,
             block_writer_rest_len: BLOCK_SIZE,
         })
+    }
+    /// 获取当前写日志文件的path
+    pub fn write_log_path(&self) -> Arc<Mutex<PathBuf>> {
+        self.block_writer_file.clone()
     }
 
     /// 往 log 中添加 record
@@ -50,7 +59,11 @@ impl LogRecordWrite {
         let mut is_new_log = false;
         // 当前log 文件大小校验,超过大小，创建新的log 文件写入
         if self.block_writer.get_ref().metadata()?.len() >= LOG_FILE_MAX_SIZE {
-            self.block_writer = gen_block_writer()?;
+            let (writer, path) = gen_block_writer()?;
+            self.block_writer = writer;
+            {
+                *self.block_writer_file.lock().unwrap() = path;
+            }
             is_new_log = true;
         }
 
@@ -145,15 +158,16 @@ impl LogRecordWrite {
     }
 }
 
-/// 获取一个新的log 文件写句柄
-fn gen_block_writer() -> Result<BufWriter<File>> {
+/// 获取一个新的log 文件写句柄 和他的path
+fn gen_block_writer() -> Result<(BufWriter<File>, PathBuf)> {
     let log_dir = env::current_dir()?.join(&SERVER_CONFIG.wal_dir);
     create_dir_all(log_dir.clone())?;
 
     let file_name = format!("{}.{}", gen_sequence(), SERVER_CONFIG.log_file_extension);
-    let log_file = open_option_default(log_dir.join(file_name.as_str()))?;
+    let path = log_dir.join(file_name.as_str());
+    let log_file = open_option_default(path.clone())?;
     // 当前 log 文件的写句柄
-    Ok(BufWriter::with_capacity(BLOCK_SIZE, log_file))
+    Ok((BufWriter::with_capacity(BLOCK_SIZE, log_file), path))
 }
 
 /// WAL日志读取的引用结构
@@ -513,9 +527,9 @@ mod test {
 
     #[test]
     fn test() {
-        let a = Path::new("log");
-        let b = read_dir(a).unwrap().last();
-        println!("{:?}", b.unwrap().unwrap().file_name());
-        println!("{}", read_dir(a).unwrap().count());
+
+
     }
+
+
 }
