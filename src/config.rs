@@ -36,6 +36,8 @@ pub struct ServerConfig {
     pub log_file_extension: String,
     // LSM 配置
     pub level_dirs: Vec<u8>,
+    pub block_size: u64,
+    pub block_restart_interval: u64,
 }
 impl ServerConfig {
     fn new() -> Result<Self> {

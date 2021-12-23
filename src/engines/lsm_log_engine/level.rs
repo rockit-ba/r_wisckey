@@ -92,6 +92,39 @@ impl LevelDir {
     }
 }
 
+/// 块句柄
+pub struct BlockHandle {
+    offset: u64,
+    size: u64,
+}
+
+/// sst 文件的 footer
+pub struct Footer {
+    /// 索引block的句柄
+    index_handle: BlockHandle,
+    magic_num: u64,
+}
+
+/// 数据 block
+pub struct DataBlock {
+    records: Vec<Record>,
+    restarts: Vec<u64>,
+}
+
+/// sst data block 中的 Record
+pub struct Record {
+    /// key 的共享长度
+    key_shared_len: u64,
+    /// key 的非共享长度
+    key_no_shared_len: u64,
+    /// value 长度
+    value_len: u64,
+    /// key 的非共享内容
+    key_no_shared_data: String,
+    /// value 内容
+    value_data: String,
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
